@@ -29,6 +29,7 @@ Boston, MA  02110-1301, USA.
 #define	EXT_LORAN_C
 #define EXT_IQ_DISPLAY
 #define EXT_S4285
+#define EXT_IQ_STREAM
 
 typedef void (*ext_main_t)();
 typedef void (*ext_close_conn_t)(int rx_chan);
