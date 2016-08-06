@@ -507,7 +507,7 @@ var passbands = {
 	usb:	{ lo:   300,	hi:  2700 },	// cf = 1500 Hz, bw = 2400 Hz
 	cw:	{ lo:   300,	hi:   700 },	// cf = 500 Hz, bw = 400 Hz
 	cwn:	{ lo:   470,	hi:   530 },	// cf = 500 Hz, bw = 60 Hz
-	nbfm:	{ lo: -4000,	hi:  4000 },	// FIXME
+	codar:	{ lo:-25000,	hi: 25000 },	// FIXME
 };
 
 function demodulator_default_analog(offset_frequency, subtype)
@@ -559,7 +559,7 @@ function demodulator_default_analog(offset_frequency, subtype)
 		this.usePBCenter=true;
 		this.isCW=true;
 	} 
-	else if(subtype=="nbfm")
+	else if(subtype=="codar")
 	{
 	}
 	else console.log("DEMOD-new: unknown subtype="+subtype);
@@ -2444,7 +2444,7 @@ var up_down = {
 	lsb: [-5, -1, -0.1, 0.1, 1, 5 ],
 	cw: [0, -0.1, -0.01, 0.01, 0.1, 0 ],
 	cwn: [0, -0.1, -0.01, 0.01, 0.1, 0 ],
-	nbfm: [0, -1, -0.1, 0.1, 1, 0 ]		// FIXME
+	codar: [0, -1, -0.1, 0.1, 1, 0 ]		// FIXME
 };
 
 var step_default_AM = 10000, step_default_CW = 1000;
@@ -2856,8 +2856,8 @@ function dx_update()
 // div elements created appending to innerHTML?
 
 var DX_MODE = 0xf;
-var modes_i = { 0:'AM', 1:'AMN', 2:'USB', 3:'LSB', 4:'CW', 5:'CWN', 6:'NBFM' };
-var modes_s = { 'am':0, 'amn':1, 'usb':2, 'lsb':3, cw:4, 'cwn':5, 'nbfm':6 };
+var modes_i = { 0:'AM', 1:'AMN', 2:'USB', 3:'LSB', 4:'CW', 5:'CWN', 6:'CODAR' };
+var modes_s = { 'am':0, 'amn':1, 'usb':2, 'lsb':3, cw:4, 'cwn':5, 'codar':6 };
 
 var DX_TYPE = 0xf0;
 var DX_TYPE_SFT = 4;
@@ -3462,7 +3462,7 @@ function panels_setup()
 		td('<div id="button-usb" class="class-button" onclick="demodulator_analog_replace(\'usb\');">USB</div>') +
 		td('<div id="button-cw" class="class-button" onclick="demodulator_analog_replace(\'cw\');">CW</div>') +
 		td('<div id="button-cwn" class="class-button" onclick="demodulator_analog_replace(\'cwn\');">CWN</div>') +
-		td('<div id="button-nbfm" class="class-button" onclick="demodulator_analog_replace(\'am\');">NBFM</div>');
+		td('<div id="button-codar" class="class-button" onclick="demodulator_analog_replace(\'am\');">CODAR</div>');
 
 	html("id-params-4").innerHTML =
 		td('<div class="class-icon" onclick="zoom_step(1);" title="zoom in"><img src="icons/zoomin.png" width="32" height="32" /></div>') +
