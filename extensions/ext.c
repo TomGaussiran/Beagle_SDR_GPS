@@ -31,6 +31,13 @@ Boston, MA  02110-1301, USA.
 
 ext_users_t ext_users[RX_CHANS];
 
+
+double ext_get_center_freqHz(int rx_chan)
+{
+	conn_t *conn = ext_users[rx_chan].conn;
+	return conn->freqHz;
+}
+
 double ext_get_sample_rateHz()
 {
 	return adc_clock / (RX1_DECIM * RX2_DECIM);
