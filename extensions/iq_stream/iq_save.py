@@ -3,27 +3,36 @@ import websocket
 import time
 import h5py
 import numpy
+import argparse
+import fractions
+import sys
+
+parser = argparse.ArgumentParser(description='Save IQ data from a kiwi SDR')
+parser.add_argument('--kiwinetaddr',metavar='IP',type=str,help='Network address of the kiwi (default: %default)',default='beaglebone')
+parser.add_argument('-o','--output',metavar="FILENAME.MDH",type=str,help="Output MDH File", required=True)
+parser.add_argument('--rxchan',metavar="INT", type=int,help="RX Channel to use", required=True)
+parser.add_argument('-d','--duration',metavar="SECS",type=float,help="Duration of collect (default: %default; 0=until killed)",default=10.)
+args = parser.parse_args()
+
+ofile=h5py.File(args.output,'w')
+
 
 
 ws = websocket.create_connection("ws://beaglebone.lan:8073/{0:.0f}/EXT".format(round(time.time())))
 
 ws.send('SERVER DE CLIENT openwebrx.js EXT')
-ws.send('SET ext_switch_to_client=iq_stream first_time=1 rx_chan=0');
+ws.send('SET ext_switch_to_client=iq_stream first_time=1 rx_chan={rx_chan:d}'.format(rx_chan=args.rxchan));
 ws.send('SET gain=48');
 ws.send('SET run=1');
 
-
-ofile=h5py.File('mydata.mdh','w')
 ds=ofile.create_dataset('Data',dtype=numpy.complex64,shape=(0,),maxshape=(None,))
 
-sampleRate=8250 # Must be an integer for now
+
 ds.attrs['CLASS']='MDH'
 ds.attrs['SUBCLASS']='PREDETECTION_SAMPLES'
-ds.attrs['timeDenominator']=sampleRate
-ds.attrs['cadence']=1
-#ds.attrs['centerFreqHz']=<enter manually with hdfview for now
+sampleRate=8250. # May be overwritten by data from receiver below
 
-while True:
+while (args.duration==0.) or len(ds)/float(sampleRate)<args.duration:
   r=ws.recv()
 
   if r.startswith('DAT \x03'):
@@ -37,9 +46,21 @@ while True:
     existingDSLen=len(ds)
     ds.resize(existingDSLen+len(samplesComplex),axis=0)
     ds[existingDSLen:existingDSLen+len(samplesComplex)]=samplesComplex
-    print "Collected {0:4.1f} seconds...".format(len(ds)/float(sampleRate))
+    sys.stdout.write("Collected {0:4.1f} seconds...\r".format(len(ds)/float(sampleRate)))
+    sys.stdout.flush()
+  elif r.startswith('SET sample_rate_hz='):
+    sample_rate=float(r.split('=')[1])
+    sample_rate_frac=fractions.Fraction.from_float(sample_rate)
+    ds.attrs['timeDenominator']=sample_rate_frac.numerator
+    ds.attrs['cadence']=sample_rate_frac.denominator
+  elif r.startswith('SET center_freq_hz='):
+    ds.attrs['centerFreqHz']=float(r.split('=')[1])
+  else:
+    pass
+    #print "MSG: ", repr(r)
 
-
+print
+>>>>>>> f8ad0d42994930898787e8c75b7747198f115b41
 
 
 

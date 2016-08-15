@@ -47,9 +47,9 @@ void iq_stream_data(int rx_chan, int nsamps, TYPECPX *samps)
 	iq_stream_t *e = &iq_stream[rx_chan];
 	int i;
 
-	
+  /* Send samples out */
 	int16_t out_samples[nsamps*2];
-	
+
   for (i=0; i<nsamps; i++) {
     float re = e->gain * (float) samps[i].re;
     float im = e->gain * (float) samps[i].im;
@@ -82,10 +82,13 @@ bool iq_stream_msgs(char *msg, int rx_chan)
 
 	n = sscanf(msg, "SET run=%d", &e->run);
 	if (n == 1) {
-		if (e->run)
+		if (e->run) {
 			ext_register_receive_iq_samps(iq_stream_data, rx_chan);
-		else
+			ext_send_msg(rx_chan, IQ_STREAM_DEBUG_MSG, "SET sample_rate_hz=%lf", ext_get_sample_rateHz());
+			ext_send_msg(rx_chan, IQ_STREAM_DEBUG_MSG, "SET center_freq_hz=%lf", ext_get_center_freqHz(rx_chan));
+		} else {
 			ext_unregister_receive_iq_samps(rx_chan);
+	  }
 		return true;
 	}
 	

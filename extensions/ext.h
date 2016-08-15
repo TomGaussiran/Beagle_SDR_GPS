@@ -28,6 +28,7 @@ Boston, MA  02110-1301, USA.
 #define	EXT_EXAMPLE
 #define	EXT_LORAN_C
 #define EXT_IQ_DISPLAY
+#define EXT_S4285
 #define EXT_IQ_STREAM
 
 typedef void (*ext_main_t)();
@@ -68,6 +69,7 @@ void ext_unregister_receive_real_samps(int rx_chan);
 
 // general routines
 double ext_get_sample_rateHz();		// return sample rate of audio channel
+double ext_get_center_freqHz(int rx_chan); // return tuned center frequency of channel
 
 // routines to send messages to extension client-part
 int ext_send_msg(int rx_chan, bool debug, const char *msg, ...);
