@@ -40,6 +40,10 @@ Boston, MA  02110-1301, USA.
 #include <stdarg.h>
 #include <time.h>
 
+#ifdef HOST
+	#include <wait.h>
+#endif
+
 #ifdef MALLOC_DEBUG
 
 //#define kmprintf(x) printf x;
@@ -204,12 +208,12 @@ void set_chars(char *field, const char *value, const char fill, size_t size)
 	memcpy(field, value, strlen(value));
 }
 
-int split(char *cp, int *argc, char *argv[], int nargs)
+int kiwi_split(char *cp, const char *delims, char *argv[], int nargs)
 {
 	int n=0;
 	char **ap;
 	
-	for (ap = argv; (*ap = strsep(&cp, " \t\n")) != NULL;) {
+	for (ap = argv; (*ap = strsep(&cp, delims)) != NULL;) {
 		if (**ap != '\0') {
 			n++;
 			if (++ap >= &argv[nargs])
@@ -305,6 +309,76 @@ u2_t getmem(u2_t addr)
 	return mem.word[0];
 }
 
+int child_task(int poll_msec, funcP_t func, void *param)
+{
+	pid_t child;
+	scall("fork", (child = fork()));
+	
+	if (child == 0) {
+		TaskForkChild();
+		func(param);	// this function should exit() with some other value if it wants
+		exit(0);
+	}
+	
+	int pid, status;
+	do {
+		TaskSleep(poll_msec);
+		pid = waitpid(child, &status, WNOHANG);
+		if (pid < 0) sys_panic("child_task waitpid");
+	} while (pid == 0);
+
+	int exited = WIFEXITED(status);
+	int exit_status = WEXITSTATUS(status);
+	//printf("child_task exited=%d exit_status=%d status=0x%08x\n", exited, exit_status, status);
+	return (exited? exit_status : -1);
+}
+
+#define NON_BLOCKING_POLL_MSEC 50000
+
+// child task that calls a function for every chunk of non-blocking command input read
+static void _non_blocking_cmd(void *param)
+{
+	int n, func_rv = 0;
+	nbcmd_args_t *args = (nbcmd_args_t *) param;
+	args->bp = (char *) malloc(args->bsize);
+	//printf("_non_blocking_cmd <%s> bsize %d\n", args->cmd, args->bsize);
+
+	FILE *pf = popen(args->cmd, "r");
+	if (pf == NULL) exit(-1);
+	int pfd = fileno(pf);
+	if (pfd <= 0) exit(-1);
+	fcntl(pfd, F_SETFL, O_NONBLOCK);
+
+	do {
+		TaskSleep(NON_BLOCKING_POLL_MSEC);
+		n = read(pfd, args->bp, args->bsize);
+		if (n > 0) {
+			args->bc = n;
+			func_rv = args->func((void *) args);
+			continue;
+		}
+	} while (n == -1 && errno == EAGAIN);
+
+	free(args->bp);
+	pclose(pf);
+
+	exit(func_rv);
+}
+
+// like non_blocking_cmd() below, but run in a child process because pclose() can block
+// for long periods of time under certain conditions
+int non_blocking_cmd_child(const char *cmd, funcPR_t func, int param, int bsize)
+{
+	nbcmd_args_t *args = (nbcmd_args_t *) malloc(sizeof(nbcmd_args_t));
+	args->cmd = cmd;
+	args->func = func;
+	args->func_param = param;
+	args->bsize = bsize;
+	int status = child_task(SEC_TO_MSEC(1), _non_blocking_cmd, (void *) args);
+	free(args);
+	return status;
+}
+
 // the popen read can block, so do non-blocking i/o with an interspersed TaskSleep()
 int non_blocking_cmd(const char *cmd, char *reply, int reply_size, int *status)
 {
@@ -319,7 +393,7 @@ int non_blocking_cmd(const char *cmd, char *reply, int reply_size, int *status)
 	fcntl(pfd, F_SETFL, O_NONBLOCK);
 
 	do {
-		TaskSleep(50000);
+		TaskSleep(NON_BLOCKING_POLL_MSEC);
 		n = read(pfd, bp, rem);
 		if (n > 0) {
 			bp += n;
@@ -341,6 +415,8 @@ int non_blocking_cmd(const char *cmd, char *reply, int reply_size, int *status)
 	return (bp - reply);
 }
 
+// non_blocking_cmd() broken down into separately callable routines in case you have to
+// do something with each chunk of data read
 int non_blocking_cmd_popen(non_blocking_cmd_t *p)
 {
 	NextTask("non_blocking_cmd_popen");
@@ -358,7 +434,7 @@ int non_blocking_cmd_read(non_blocking_cmd_t *p, char *reply, int reply_size)
 	int n;
 
 	do {
-		TaskSleep(50000);
+		TaskSleep(NON_BLOCKING_POLL_MSEC);
 		n = read(p->pfd, reply, reply_size);
 		if (n > 0) reply[(n == reply_size)? n-1 : n] = 0;	// assuming we're always expecting a string
 	} while (n == -1 && errno == EAGAIN);

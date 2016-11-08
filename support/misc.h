@@ -30,19 +30,12 @@
 void get_chars(char *field, char *value, size_t size);
 #define SET_CHARS(field, value, fill) set_chars(field, value, fill, sizeof(field));
 void set_chars(char *field, const char *value, const char fill, size_t size);
-int split(char *cp, int *argc, char *argv[], int nargs);
+int kiwi_split(char *cp, const char *delims, char *argv[], int nargs);
 void str_unescape_quotes(char *str);
 char *str_encode(char *s);
 int str2enum(const char *s, const char *strs[], int len);
 const char *enum2str(int e, const char *strs[], int len);
 void kiwi_chrrep(char *str, const char from, const char to);
-
-#ifdef CLIENT_SIDE
- #define timer_ms() 0
-#else
- u4_t timer_ms(void);
- u4_t timer_us(void);
-#endif
 
 struct non_blocking_cmd_t {
 	const char *cmd;
@@ -50,10 +43,20 @@ struct non_blocking_cmd_t {
 	int pfd;
 };
 
+struct nbcmd_args_t {
+	const char *cmd;
+	funcPR_t func;
+	int func_param, func_rval;
+	char *bp;
+	int bsize, bc;
+};
+
+int child_task(int poll_msec, funcP_t func, void *param);
+int non_blocking_cmd_child(const char *cmd, funcPR_t func, int param, int bsize);
+int non_blocking_cmd(const char *cmd, char *reply, int reply_size, int *status);
 int non_blocking_cmd_popen(non_blocking_cmd_t *p);
 int non_blocking_cmd_read(non_blocking_cmd_t *p, char *reply, int reply_size);
 int non_blocking_cmd_pclose(non_blocking_cmd_t *p);
-int non_blocking_cmd(const char *cmd, char *reply, int reply_size, int *status);
 
 int set_option(int *option, const char* cfg_name, int *override);
 u2_t ctrl_get();

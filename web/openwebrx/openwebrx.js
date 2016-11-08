@@ -1541,8 +1541,8 @@ canvas_drag_min_delta=1;
 canvas_mouse_down = false;
 canvas_ignore_mouse_event = false;
 
-// prevent default browser menu from showing on right mouse button push 
-function canvas_contextmenu(evt)
+// prevent default browser menu or actions (e.g. shift-selection)
+function event_cancel(evt)
 {
 	evt.preventDefault();
 	return cancelEvent(evt);
@@ -1926,24 +1926,19 @@ function add_canvas_listner(obj)
 	obj.addEventListener("mousemove", canvas_mousemove, false);
 	obj.addEventListener("mouseup", canvas_mouseup, false);
 	obj.addEventListener("mousedown", canvas_mousedown, false);
-	obj.addEventListener("contextmenu", canvas_contextmenu, false);
+	obj.addEventListener("contextmenu", event_cancel, false);
 	obj.addEventListener("wheel", canvas_mousewheel, false);
-}
-
-function mouse_ignore(ev) {
-	//console.log("MIGN");
-	return cancelEvent(ev);
 }
 
 function mouse_listner_ignore(obj)
 {
-	obj.addEventListener("mouseover", mouse_ignore, false);
-	obj.addEventListener("mouseout", mouse_ignore, false);
-	obj.addEventListener("mousemove", mouse_ignore, false);
-	obj.addEventListener("mouseup", mouse_ignore, false);
-	obj.addEventListener("mousedown", mouse_ignore, false);
-	obj.addEventListener("contextmenu", mouse_ignore, false);
-	obj.addEventListener("wheel", mouse_ignore, false);
+	obj.addEventListener("mouseover", event_cancel, false);
+	obj.addEventListener("mouseout", event_cancel, false);
+	obj.addEventListener("mousemove", event_cancel, false);
+	obj.addEventListener("mouseup", event_cancel, false);
+	obj.addEventListener("mousedown", event_cancel, false);
+	obj.addEventListener("contextmenu", event_cancel, false);
+	obj.addEventListener("wheel", event_cancel, false);
 }
 
 canvas_maxshift=0;
@@ -2135,10 +2130,10 @@ function waterfall_add(dat)
 	}
 	
 	var sw, sh, tw=25;
-	var need_update = false;
+	var need_spectrum_update = false;
 	if (spectrum_display && spectrum_update != spectrum_last_update) {
 		spectrum_last_update = spectrum_update;
-		need_update = true;
+		need_spectrum_update = true;
 
 		// clear entire spectrum canvas to black
 		sw = spectrum_canvas.width-tw;
@@ -2189,7 +2184,7 @@ function waterfall_add(dat)
 	// Add line to waterfall image			
 	
 	var zwf, color;
-	if (spectrum_display && need_update) {
+	if (spectrum_display && need_spectrum_update) {
 		for (var x=0; x<w; x++) {
 			// wf
 			zwf = waterfall_color_index(data[x]);
@@ -2508,8 +2503,26 @@ function do_waterfall_index(db_value, sqrt)
 	var relative_value = db_value - mindb;
 	var value_percent = relative_value/full_scale;
 	
-	if (sqrt == 1)
+	switch (+sqrt) {
+	
+	case 0:
+		break;
+	case 1:
 		value_percent = Math.sqrt(value_percent);
+		break;
+	case 2:
+		if (value_percent > 0.21 && value_percent < 0.5)
+			value_percent = 0.2 + (4 + Math.log10(value_percent - 0.2)) * 0.09;
+		break;
+	case 3:
+		if (value_percent > 0.31 && value_percent < 0.6)
+			value_percent = 0.3 + (5 + Math.log10(value_percent - 0.3)) * 0.07;
+		break;
+	case 4:
+		if (value_percent > 0.41 && value_percent < 0.7)
+			value_percent = 0.4 + (6 + Math.log10(value_percent - 0.4)) * 0.055;
+		break;
+	}
 	
 	var i = value_percent*255;
 	i = Math.round(i);
@@ -2854,21 +2867,23 @@ function freqset_keyup(obj, evt)
 	// evt.key string length != 1, i.e. evt.shiftKey et al don't seem to be valid for the key-up event!
 	// But also have to check for them with any_alternate_click_event() in case a modifier key of a
 	// normal key is pressed (e.g. shift-$).
-	var klen = evt.key.length;
 	//if (ignore_next_keyup_event) {
-	if (any_alternate_click_event(evt) || klen != 1) {
-
-		// An escape while the the freq box has focus causes the browser to put input value back to the
-		// last entered value directly by keyboard. This value is likely different than what was set by
-		// the last "element.value = ..." assigned from a waterfall click. So we have to restore the value.
-		if (evt.key == 'Escape') {
-			//console.log('** restore freq box');
-			freqset_update_ui();
+	if (evt != undefined && evt.key != undefined) {
+		var klen = evt.key.length;
+		if (any_alternate_click_event(evt) || klen != 1) {
+	
+			// An escape while the the freq box has focus causes the browser to put input value back to the
+			// last entered value directly by keyboard. This value is likely different than what was set by
+			// the last "element.value = ..." assigned from a waterfall click. So we have to restore the value.
+			if (evt.key == 'Escape') {
+				//console.log('** restore freq box');
+				freqset_update_ui();
+			}
+	
+			//console.log('FKU IGNORE ign='+ ignore_next_keyup_event +' klen='+ klen);
+			ignore_next_keyup_event = false;
+			return;
 		}
-
-		//console.log('FKU IGNORE ign='+ ignore_next_keyup_event +' klen='+ klen);
-		ignore_next_keyup_event = false;
-		return;
 	}
 	
 	freqset_tout = setTimeout('freqset_complete(1)', 3000);
@@ -3805,7 +3820,7 @@ function user(i, name, geoloc, freq, mode, zoom, connected, ext)
 
    if (typeof name != 'undefined') {
 		var f = (freq/1000).toFixed(2);
-		var g = '(unknown location)';
+		var g = ' (unknown location)';
 		if (geoloc != '(null)') g = ' ('+geoloc+')';
 		if (ext != '') ext += ' ';
 		var id = kiwi_strip_tags(name, '');
@@ -3981,13 +3996,13 @@ function panels_setup()
 	button_9_10(step_9_10);
 
 	html("id-params-3").innerHTML =
-		td('<div id="button-am" class="class-button" onclick="mode_button(event, \'am\')" onmouseover="mode_over(event)">AM</div>') +
-		td('<div id="button-amn" class="class-button" onclick="mode_button(event, \'amn\')" onmouseover="mode_over(event)">AMN</div>') +
-		td('<div id="button-lsb" class="class-button" onclick="mode_button(event, \'lsb\')" onmouseover="mode_over(event)">LSB</div>') +
-		td('<div id="button-usb" class="class-button" onclick="mode_button(event, \'usb\')" onmouseover="mode_over(event)">USB</div>') +
-		td('<div id="button-cw" class="class-button" onclick="mode_button(event, \'cw\')" onmouseover="mode_over(event)">CW</div>') +
-		td('<div id="button-cwn" class="class-button" onclick="mode_button(event, \'cwn\')" onmouseover="mode_over(event)">CWN</div>') +
-		td('<div id="button-nbfm" class="class-button" onclick="mode_button(event, \'nbfm\')" onmouseover="mode_over(event)">NBFM</div>');
+		td('<div id="button-am" class="class-button" onclick="mode_button(event, \'am\')" onmousedown="event_cancel(event)" onmouseover="mode_over(event)">AM</div>') +
+		td('<div id="button-amn" class="class-button" onclick="mode_button(event, \'amn\')" onmousedown="event_cancel(event)" onmouseover="mode_over(event)">AMN</div>') +
+		td('<div id="button-lsb" class="class-button" onclick="mode_button(event, \'lsb\')" onmousedown="event_cancel(event)" onmouseover="mode_over(event)">LSB</div>') +
+		td('<div id="button-usb" class="class-button" onclick="mode_button(event, \'usb\')" onmousedown="event_cancel(event)" onmouseover="mode_over(event)">USB</div>') +
+		td('<div id="button-cw" class="class-button" onclick="mode_button(event, \'cw\')" onmousedown="event_cancel(event)" onmouseover="mode_over(event)">CW</div>') +
+		td('<div id="button-cwn" class="class-button" onclick="mode_button(event, \'cwn\')" onmousedown="event_cancel(event)" onmouseover="mode_over(event)">CWN</div>') +
+		td('<div id="button-nbfm" class="class-button" onclick="mode_button(event, \'nbfm\')" onmousedown="event_cancel(event)" onmouseover="mode_over(event)">NBFM</div>');
 
 	html("id-params-4").innerHTML =
 		td('<div class="class-icon" onclick="zoom_step(1);" title="zoom in"><img src="icons/zoomin.png" width="32" height="32" /></div>') +
@@ -4019,8 +4034,8 @@ function panels_setup()
 
 	html('id-params-more').innerHTML =
 		w3_col_percent('w3-vcenter', 'w3-hspace-8',
-			'<div id="id-button-agc" class="class-button" onclick="toggle_or_set_agc();">AGC</div>' +
-			'<div id="id-button-hang" class="class-button" onclick="toggle_hang();">Hang</div>', 30,
+			'<div id="id-button-agc" class="class-button" onclick="toggle_agc(event)" onmousedown="event_cancel(event)" onmouseover="agc_over(event)">AGC</div>' +
+			'<div id="id-button-hang" class="class-button" onclick="toggle_or_set_hang();">Hang</div>', 30,
 			w3_divs('class-slider', '',
 				w3_divs('w3-show-inline-block', 'label-man-gain', 'Manual<br>Gain ') +
 				'<input id="input-man-gain" type="range" min="0" max="120" value="'+ manGain +'" step="1" onchange="setManGain(1,this.value)" oninput="setManGain(0,this.value)">' +
@@ -4051,9 +4066,9 @@ function panels_setup()
 	html('slider-volume').innerHTML =
 		'Volume <input id="input-volume" type="range" min="0" max="200" value="'+volume+'" step="1" onchange="setvolume(1, this.value)" oninput="setvolume(0, this.value)">';
 
-	toggle_or_set_agc(1);
+	setup_agc(toggle_e.FROM_COOKIES | toggle_e.SET);
 	setup_slider_one();
-	toggle_or_set_more(0);
+	toggle_or_set_more(toggle_e.FROM_COOKIES | toggle_e.SET, 0);
 
 	// id-news
 	html('id-news').style.backgroundColor = news_color;
@@ -4317,12 +4332,13 @@ function toggle_mute()
 
 var more = 0;
 
-function toggle_or_set_more(set)
+function toggle_or_set_more(set, val)
 {
 	if (set != undefined)
-		more = set;
+		more = kiwi_toggle(set, val, more, 'last_more');
 	else
 		more ^= 1;
+
 	html('id-button-more').style.color = more? 'lime':'white';
 	if (more) {
 		//divClientParams.style.top = '224px';
@@ -4335,15 +4351,50 @@ function toggle_or_set_more(set)
 		//divClientParams.style.bottom = '0px';
 		divClientParams.style.height = divClientParams.uiHeight +'px';
 	}
-   freqset_select();
+	writeCookie('last_more', more.toString());
+	freqset_select();
 }
 
 function set_agc()
 {
-	ws_aud_send('SET agc='+ agc +'hang='+ hang +'thresh='+ thresh +'slope='+ slope +' decay='+ decay +' manGain='+ manGain);
+	ws_aud_send('SET agc='+ agc +' hang='+ hang +' thresh='+ thresh +' slope='+ slope +' decay='+ decay +' manGain='+ manGain);
 }
 
-var agc = 1;
+var agc = 0;
+
+function toggle_agc(evt)
+{
+	if (any_alternate_click_event(evt)) {
+		setup_agc(toggle_e.SET);
+	} else {
+		toggle_or_set_agc();
+	}
+
+	evt.preventDefault();
+	return cancelEvent(evt);
+}
+
+function agc_over(evt)
+{
+	html_id('id-button-agc').title = any_alternate_click_event(evt)? 'restore AGC params':'';
+}
+
+var default_agc = 1;
+var default_hang = 0;
+var default_manGain = 50;
+var default_thresh = -100;
+var default_slope = 6;
+var default_decay = 1000;
+
+function setup_agc(toggle_flags)
+{
+	agc = kiwi_toggle(toggle_flags, default_agc, agc, 'last_agc'); toggle_or_set_agc(agc);
+	hang = kiwi_toggle(toggle_flags, default_hang, hang, 'last_hang'); toggle_or_set_hang(hang);
+	manGain = kiwi_toggle(toggle_flags, default_manGain, manGain, 'last_manGain'); setManGain(true, manGain);
+	thresh = kiwi_toggle(toggle_flags, default_thresh, thresh, 'last_thresh'); setThresh(true, thresh);
+	slope = kiwi_toggle(toggle_flags, default_slope, slope, 'last_slope'); setSlope(true, slope);
+	decay = kiwi_toggle(toggle_flags, default_decay, decay, 'last_decay'); setDecay(true, decay);
+}
 
 function toggle_or_set_agc(set)
 {
@@ -4351,7 +4402,7 @@ function toggle_or_set_agc(set)
 		agc = set;
 	else
 		agc ^= 1;
-	//console.log('agc='+ agc);
+	
 	html('id-button-agc').style.color = agc? 'lime':'white';
 	if (agc) {
 		html('label-man-gain').style.color = 'white';
@@ -4361,36 +4412,46 @@ function toggle_or_set_agc(set)
 		html('id-button-hang').style.borderColor = html('label-threshold').style.color = html('label-slope').style.color = html('label-decay').style.color = 'white';
 	}
 	set_agc();
+	writeCookie('last_agc', agc.toString());
    freqset_select();
 }
 
 var hang = 0;
 
-function toggle_hang()
+function toggle_or_set_hang(set)
 {
-	hang ^= 1;
+	if (set != undefined)
+		hang = set;
+	else
+		hang ^= 1;
+
 	html('id-button-hang').style.color = hang? 'lime':'white';
 	set_agc();
+	writeCookie('last_hang', hang.toString());
    freqset_select();
 }
 
-var manGain = 50;
+var manGain = 0;
 
 function setManGain(done, str)
 {
    manGain = parseFloat(str);
+   html('input-man-gain').value = manGain;
    html('field-man-gain').innerHTML = str;
 	set_agc();
+	writeCookie('last_manGain', manGain.toString());
    if (done) freqset_select();
 }
 
-var thresh = -120;
+var thresh = 0;
 
 function setThresh(done, str)
 {
    thresh = parseFloat(str);
+   html('input-threshold').value = thresh;
    html('field-threshold').innerHTML = str;
 	set_agc();
+	writeCookie('last_thresh', thresh.toString());
    if (done) freqset_select();
 }
 
@@ -4399,18 +4460,22 @@ var slope = 0;
 function setSlope(done, str)
 {
    slope = parseFloat(str);
+   html('input-slope').value = slope;
    html('field-slope').innerHTML = str;
 	set_agc();
+	writeCookie('last_slope', slope.toString());
    if (done) freqset_select();
 }
 
-var decay = 1000;
+var decay = 0;
 
 function setDecay(done, str)
 {
    decay = parseFloat(str);
+   html('input-decay').value = decay;
    html('field-decay').innerHTML = str;
 	set_agc();
+	writeCookie('last_decay', decay.toString());
    if (done) freqset_select();
 }
 
@@ -4472,8 +4537,8 @@ function mode_button(evt, mode)
 	if (any_alternate_click_event(evt)) {
 		passbands[mode].last_lo = passbands[mode].lo;
 		passbands[mode].last_hi = passbands[mode].hi;
-		//writeCookie('last_locut', passbands[mode].last_lo.toString(0));
-		//writeCookie('last_hicut', passbands[mode].last_hi.toString(0));
+		//writeCookie('last_locut', passbands[mode].last_lo.toString());
+		//writeCookie('last_hicut', passbands[mode].last_hi.toString());
 		//console.log('DEMOD PB reset');
 	}
 	
@@ -4588,7 +4653,7 @@ function place_panels()
 	divClientParams.addEventListener("keyup", function(evt) {
 		//event_dump(evt, 'PAR');
 		if (evt.key == 'Escape' && evt.target.nodeName == 'INPUT')
-			toggle_or_set_more(0);
+			toggle_or_set_more(toggle_e.SET, 0);
 	}, false);
 }
 
