@@ -35,6 +35,28 @@ int pending_maj = -1, pending_min = -1;
 int force_build = 0;
 
 static void update_build(void *param)
+<<<<<<< HEAD
+=======
+{
+	int force_build = (int) (long) param;
+	
+	if (force_build == 2) {
+		system("cd /root/" REPO_NAME "; mv Makefile.1 Makefile; rm -f obj/p*.o obj/r*.o obj/f*.o; make");
+	} else
+	if (force_build == 3) {
+		system("cd /root/" REPO_NAME "; rm -f obj_O3/p*.o obj_O3/r*.o obj_O3/f*.o; make");
+	} else {
+		int status = system("cd /root/" REPO_NAME "; make git");
+		if (status < 0 || WEXITSTATUS(status) != 0) {
+			exit(-1);
+		}
+		status = system("cd /root/" REPO_NAME "; make clean_dist; make; make install");
+	}
+	exit(0);
+}
+
+static void update_task(void *param)
+>>>>>>> jks-master
 {
 	int force_build = (int) (long) param;
 	

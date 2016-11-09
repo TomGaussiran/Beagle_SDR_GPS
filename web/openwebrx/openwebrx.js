@@ -180,10 +180,14 @@ var news_color = '#ff00bf';
 
 function init_panels()
 {
-	var readme = updateCookie('readme', 'seen2');
-	init_panel_toggle(ptype.TOGGLE, 'readme', dbgUs? popt.CLOSE : (readme? popt.PERSIST : 7000), readme_color);
-	init_panel_toggle(ptype.TOGGLE, 'msgs');
-	init_panel_toggle(ptype.POPUP, 'news', show_news? ((readCookie('news', 'seen') == null)? popt.PERSIST : popt.CLOSE) : popt.CLOSE);
+	var readme_firsttime = updateCookie('readme', 'seen2');
+	init_panel_toggle(ptype.TOGGLE, 'readme', (dbgUs || kiwi_isMobile())? popt.CLOSE : (readme_firsttime? popt.PERSIST : 7000), readme_color);
+
+	init_panel_toggle(ptype.TOGGLE, 'msgs', kiwi_isMobile()? popt.CLOSE : popt.PERSIST);
+
+	var news_firsttime = (readCookie('news', 'seen') == null);
+	init_panel_toggle(ptype.POPUP, 'news', show_news? (news_firsttime? popt.PERSIST : popt.CLOSE) : popt.CLOSE);
+
 	init_panel_toggle(ptype.POPUP, 'ext-controls', popt.CLOSE);
 }
 
@@ -252,7 +256,9 @@ function toggle_panel(panel)
 	} else {
 		from = hideWidth; to = 0;
 	}
-	animate(divPanel, rightSide? 'right':'left', "px", from, to, 0.93, 1000, 60, 0);
+	
+	animate(divPanel, rightSide? 'right':'left', "px", from, to, 0.93, kiwi_isMobile()? 1:1000, 60, 0);
+	
 	html('id-'+panel+'-'+(panel_shown[panel]? 'hide':'show')).style.display = "none";
 	html('id-'+panel+'-'+(panel_shown[panel]? 'show':'hide')).style.display = "block";
 	panel_shown[panel] ^= 1;
@@ -292,7 +298,7 @@ function init_rx_photo()
 	html("id-top-photo-clip").style.maxHeight=RX_PHOTO_HEIGHT.toString()+"px";
 	//window.setTimeout(function() { animate(html("id-rx-photo-title"),"opacity","",1,0,1,500,30); },1000);
 	//window.setTimeout(function() { animate(html("id-rx-photo-desc"),"opacity","",1,0,1,500,30); },1500);
-	if (dbgUs) {
+	if (dbgUs || kiwi_isMobile()) {
 		close_rx_photo();
 	} else {
 		window.setTimeout(function() { close_rx_photo() },5000);
@@ -306,7 +312,7 @@ function open_rx_photo()
 	rx_photo_state=1;
 	html("id-rx-photo-desc").style.opacity=1;
 	html("id-rx-photo-title").style.opacity=1;
-	animate_to(html("id-top-photo-clip"),"maxHeight","px",RX_PHOTO_HEIGHT,0.93,1000,60,function(){resize_waterfall_container(true);});
+	animate_to(html("id-top-photo-clip"),"maxHeight","px",RX_PHOTO_HEIGHT,0.93,kiwi_isMobile()? 1:1000,60,function(){resize_waterfall_container(true);});
 	html("id-rx-details-arrow-down").style.display="none";
 	html("id-rx-details-arrow-up").style.display="block";
 }
@@ -314,7 +320,7 @@ function open_rx_photo()
 function close_rx_photo()
 {
 	rx_photo_state=0;
-	animate_to(html("id-top-photo-clip"),"maxHeight","px",rx_photo_spacer_height,0.93,1000,60,function(){resize_waterfall_container(true);});
+	animate_to(html("id-top-photo-clip"),"maxHeight","px",rx_photo_spacer_height,0.93,kiwi_isMobile()? 1:1000,60,function(){resize_waterfall_container(true);});
 	html("id-rx-details-arrow-down").style.display="block";
 	html("id-rx-details-arrow-up").style.display="none";
 }
@@ -348,6 +354,7 @@ function animate(object, style_name, unit, from, to, accel, time_ms, fps, to_exe
 	object.style[style_name]=from.toString()+unit;
 	object.anim_i=0;
 	n_of_iters=time_ms/(1000/fps);
+	if (n_of_iters < 1) n_of_iters = 1;
 	change=(to-from)/(n_of_iters);
 	if(typeof object.anim_timer!="undefined") { window.clearInterval(object.anim_timer);  }
 
@@ -1832,6 +1839,7 @@ console.log("ZTB-user f="+f+" cf="+cf+" b="+b.name+" z="+b.zoom_level);
 	var pixel_dx = bins_to_pixels(1, dbins, out? zoom_level:ozoom);
 	//console.log("Zs z"+ozoom+'>'+zoom_level+' b='+x_bin+'/'+x_obin+'/'+dbins+' bz='+bins_at_zoom(ozoom)+' r='+(dbins / bins_at_zoom(ozoom))+' px='+pixel_dx);
 	var dz = zoom_level - ozoom;
+	//console.log('zoom_step oz='+ ozoom +' zl='+ zoom_level +' dz='+ dz +' pdx='+ pixel_dx);
 	waterfall_zoom_canvases(dz, pixel_dx);
 	mkscale();
 	dx_schedule_update();
@@ -1862,7 +1870,7 @@ var canvas_default_height = 200;
 var canvas_container;
 var canvas_phantom;
 var canvas_actual_line;
-var canvas_id=0;
+var canvas_id = 0;
 var canvas_oneline_image;
 
 // NB: canvas data width is fft_size, but displayed style width is waterfall_width (likely different),
@@ -1871,20 +1879,22 @@ var canvas_oneline_image;
 function add_canvas()
 {	
 	var new_canvas = document.createElement("canvas");
-	new_canvas.width=fft_size;
-	new_canvas.height=canvas_default_height;
-	canvas_actual_line=canvas_default_height-1;
-	new_canvas.style.width=waterfall_width.toString()+"px";	
-	new_canvas.style.left="0px";
-	new_canvas.openwebrx_height=canvas_default_height;	
-	new_canvas.style.height=new_canvas.openwebrx_height.toString()+"px";
-	new_canvas.openwebrx_top=(-canvas_default_height+1);	
-	new_canvas.style.top=new_canvas.openwebrx_top.toString()+"px";
+	new_canvas.width = fft_size;
+	new_canvas.height = canvas_default_height;
+	canvas_actual_line = canvas_default_height-1;
+	new_canvas.style.width = waterfall_width.toString()+"px";	
+	new_canvas.style.left = "0px";
+	new_canvas.openwebrx_height = canvas_default_height;	
+	new_canvas.style.height = new_canvas.openwebrx_height.toString()+"px";
+
+	// initially the canvas is one line "above" the top of the container
+	new_canvas.openwebrx_top = (-canvas_default_height+1);	
+	new_canvas.style.top = new_canvas.openwebrx_top.toString()+"px";
 
 	canvas_context = new_canvas.getContext("2d");
 	canvas_container.appendChild(new_canvas);
 	add_canvas_listner(new_canvas);
-	new_canvas.openwebrx_id=canvas_id++;
+	new_canvas.openwebrx_id = canvas_id++;
 	canvases.unshift(new_canvas);
 	canvas_oneline_image = canvas_context.createImageData(fft_size, 1);
 }
@@ -1894,16 +1904,19 @@ var spectrum_canvas, spectrum_ctx;
 function init_canvas_container()
 {
 	window_width = window.innerWidth;		// window width minus any scrollbar
-	canvas_container=html("id-waterfall-container");
+	canvas_container = html("id-waterfall-container");
 	waterfall_width = canvas_container.clientWidth;
 	//console.log("init_canvas_container ww="+waterfall_width);
 	canvas_container.addEventListener("mouseout", canvas_container_mouseout, false);
 	//window.addEventListener("mouseout",window_mouseout,false);
 	//document.body.addEventListener("mouseup",body_mouseup,false);
 
-	canvas_phantom=html("id-phantom-canvas");
+	// a phantom one at the end
+	canvas_phantom = html("id-phantom-canvas");
 	add_canvas_listner(canvas_phantom);
-	canvas_phantom.style.width=canvas_container.clientWidth+"px";
+	canvas_phantom.style.width = canvas_container.clientWidth+"px";
+
+	// the first one to get started
 	add_canvas();
 
 	spectrum_canvas = document.createElement("canvas");	
@@ -1941,19 +1954,20 @@ function mouse_listner_ignore(obj)
 	obj.addEventListener("wheel", event_cancel, false);
 }
 
-canvas_maxshift=0;
+canvas_maxshift = 0;
 
 function shift_canvases()
 {
+	// shift the canvases downward by increasing their individual top offsets
 	canvases.forEach(function(p) 
 	{
-		p.style.top=(p.openwebrx_top++).toString()+"px";
+		p.style.top = (p.openwebrx_top++).toString()+"px";
 	});
 	
 	// retire canvases beyond bottom of scroll-back window
-	var p = canvases[canvases.length-1];
+	var p = canvases[canvases.length-1];	// last not including the phantom
 	if (p.openwebrx_top >= waterfall_scrollable_height) {
-		//p.style.display="none";
+		//p.style.display = "none";
 		canvas_container.removeChild(p);		// fixme: is this right?
 		canvases.pop();		// fixme: this alone makes scrollbar jerky
 		
@@ -1961,11 +1975,11 @@ function shift_canvases()
 		p.openwebrx_height--;
 		if (p.openwebrx_height <= 0) {
 			//console.log("XX "+p.openwebrx_top+' '+canvas_container.clientHeight);
-			p.style.display="none";
+			p.style.display = "none";
 			//var ctx = p.getContext("2d"); ctx.fillStyle = "Red"; ctx.fillRect(0,0,p.width,p.height);
 			canvases.pop();
 		} else {
-			//p.style.height=p.openwebrx_height.toString()+"px";
+			//p.style.height = p.openwebrx_height.toString()+"px";
 			p.beginPath();
 			p.rect(0, 0, p.openwebrx_width, p.openwebrx_height);
 			p.clip();
@@ -1973,19 +1987,17 @@ function shift_canvases()
 		*/
 	}
 	
+	// set the height of the phantom to fill the unused space
 	canvas_maxshift++;
-	if(canvas_maxshift < canvas_container.clientHeight)
-	{
-		canvas_phantom.style.top=canvas_maxshift.toString()+"px";
-		canvas_phantom.style.height=(canvas_container.clientHeight-canvas_maxshift).toString()+"px";
-		canvas_phantom.style.display="block";
-	}
-	else
-		canvas_phantom.style.display="none";
+	if (canvas_maxshift < canvas_container.clientHeight) {
+		canvas_phantom.style.top = canvas_maxshift.toString()+"px";
+		canvas_phantom.style.height = (canvas_container.clientHeight - canvas_maxshift).toString()+"px";
+		canvas_phantom.style.display = "block";
+	} else
+		canvas_phantom.style.display = "none";
 	
-	
-	//canvas_container.style.height=(((canvases.length-1)*canvas_default_height)+(canvas_default_height-canvas_actual_line)).toString()+"px";
-	//canvas_container.style.height="100%";
+	//canvas_container.style.height = (((canvases.length-1)*canvas_default_height)+(canvas_default_height-canvas_actual_line)).toString()+"px";
+	//canvas_container.style.height = "100%";
 }
 
 function resize_canvases(zoom)
@@ -2000,12 +2012,12 @@ function resize_canvases(zoom)
 
 	canvases.forEach(function(p) 
 	{
-		p.style.width=new_width;
-		p.style.left=zoom_value;
+		p.style.width = new_width;
+		p.style.left = zoom_value;
 	});
-	canvas_phantom.style.width=new_width;
-	canvas_phantom.style.left=zoom_value;
-	spectrum_canvas.style.width = new_width;
+	canvas_phantom.style.width = new_width;
+	canvas_phantom.style.left = zoom_value;
+	spectrum_canvas.style.width  =  new_width;
 }
 
 
@@ -2126,7 +2138,7 @@ function waterfall_add(dat)
 		var ndata = new Uint8Array(bytes*2);
 		var wf_adpcm = { index:0, previousValue:0 };
 		decode_ima_adpcm_u8_i16(data, ndata, bytes, wf_adpcm);
-		data = ndata.subarray(10);
+		data = ndata.subarray(10);		// #define ADPCM_PAD 10
 	}
 	
 	var sw, sh, tw=25;
@@ -2216,6 +2228,7 @@ function waterfall_add(dat)
 			// wf
 			zwf = waterfall_color_index(data[x]);
 			color = color_map[zwf];
+	
 			for (var i=0; i<4; i++) {
 				canvas_oneline_image.data[x*4+i] = ((color>>>0) >> ((3-i)*8)) & 0xff;
 			}
@@ -2337,9 +2350,13 @@ function waterfall_zoom(cv, ctx, dz, line, x)
 			if (w != 0) {
 				if (sb_trace) console.log('WFZ x='+x+' y='+y+' nw='+nw+' w='+w+' h='+h+' dz='+dz);
 				ctx.drawImage(cv, x,y,nw,h, 0,y,w,h);
-				ctx.fillStyle = "Black";
-				ctx.fillRect(0,y,x,y+h);
-				ctx.fillRect(x+nw,y,w,y+h);
+				
+				// FIXME XXX why did we put this in here? (quite a while ago)
+				// It fails a simple case: overwrites the edges going z0 -> z1
+				// Doesn't zooming in always result in a 1024px wide result with dest_x = 0?
+				//ctx.fillStyle = "Black";
+				//ctx.fillRect(0,y,x,y+h);
+				//ctx.fillRect(x+nw,y,w,y+h);
 			}
 		} catch(ex) {
 		   console.log("EX2 dz="+dz+" x="+x+" y="+y+" w="+w+" h="+h);		// fixme remove
@@ -2361,17 +2378,29 @@ function waterfall_zoom_canvases(dz, x)
 	//console.log("ZOOM z"+zoom_level+" xb="+x_bin+" x="+x);
 }
 
+// window:
+//		top container
+//		non-waterfall container
+//		waterfall container
+
+function waterfall_height()
+{
+	var top_height = html("id-top-container").clientHeight;
+	var non_waterfall_height = html("id-non-waterfall-container").clientHeight;
+	var wf_height = window.innerHeight - top_height - non_waterfall_height;
+	//console.log('waterfall_height: wf_height='+ wf_height +' winh='+ window.innerHeight +' th='+ top_height +' nh='+ non_waterfall_height);
+	return wf_height;
+}
+
 function resize_waterfall_container(check_init)
 {
 	if (check_init && !waterfall_setup_done) return;
 
-	var top_height = html("id-top-container").clientHeight;
-	var non_waterfall_height = html("id-non-waterfall-container").clientHeight;
-	var canvas_height = window.innerHeight - top_height - non_waterfall_height;
-	//console.log('## canvas_container.style.height ='+ canvas_height +' winh='+ window.innerHeight +' th='+ top_height +' nh='+ non_waterfall_height);
-	if (canvas_height >= 0) canvas_container.style.height = canvas_height.toString()+"px";
+	var wf_height = waterfall_height();
+	//console.log('## canvas_container.style.height='+ wf_height +' winh='+ window.innerHeight +' th='+ top_height +' nh='+ non_waterfall_height);
+	if (wf_height >= 0) canvas_container.style.height = wf_height.toString()+"px";
 
-	waterfall_scrollable_height = (window.innerHeight - non_waterfall_height) * 3;
+	waterfall_scrollable_height = wf_height * 3;
 	//console.log('## wsh='+ waterfall_scrollable_height);
 }
 
@@ -2412,7 +2441,7 @@ function waterfall_dequeue()
 	if (!waterfall_setup_done || waterfall_queue.length == 0) return;
 	
 	while (waterfall_queue.length != 0) {
-	
+
 		var seq = waterfall_queue_seq[0];
 		if (seq > (audio_sequence + waterfall_delay))
 			return;		// too soon
@@ -2739,11 +2768,7 @@ function freqset_update_ui()
 	if (typeof obj == "undefined" || obj == null) return;		// can happen if SND comes up long before W/F
 	obj.value = freq_displayed_kHz_str;
 	//console.log("FUPD obj="+(typeof obj)+" val="+obj.value);
-	//obj.focus();
-	if (!kiwi_is_iOS() && obj && typeof obj.select == 'function') {
-		//console.log('** freqset_update_ui select');
-		obj.select();
-	}
+	freqset_select();
 	
 	// re-center if the new passband is outside the current waterfall 
 	var pb_bin = -passband_visible() - 1;
@@ -2769,15 +2794,9 @@ function freqset_update_ui()
 	freq_link_update();
 }
 
-function freqset_select()
+function freqset_select(id)
 {
-	var obj = html_id('id-freq-input');
-	//obj.focus();
-	//console.log("FS iOS="+kiwi_is_iOS());
-	if (!kiwi_is_iOS() && obj && typeof obj.select == 'function') {
-		//console.log('** freqset_select select');
-		obj.select();
-	}
+	w3_field_select('id-freq-input', kiwi_isMobile()? false : true);
 }
 
 var last_mode_obj = null;
@@ -2842,10 +2861,7 @@ function freqset_complete(timeout)
 	//console.log("FCMPL2 obj="+(typeof obj)+" val="+(obj.value).toString());
 	if (f > 0 && !isNaN(f)) {
 		freqmode_set_dsp_kHz(f, null);
-		if (obj && typeof obj.select == 'function') {
-			//console.log('** freqset_complete select');
-			obj.select();
-		}
+		w3_field_select(obj, kiwi_isMobile()? false : true);
 	}
 }
 
@@ -3476,8 +3492,7 @@ function dx_admin_cb(badp)
 	extint_panel_show(s, null, null);
 	
 	// put the cursor in (select) the password field
-	var el = html('id-dxo.p');
-	if (el && typeof el.select == 'function') el.select();
+	w3_field_select('id-dxo.p', kiwi_isMobile()? false : true);
 }
 
 function dx_pwd_cb(el, val)
@@ -3575,11 +3590,8 @@ function dx_show_edit_panel2()
 		
 		// change focus to input field
 		// FIXME: why does this work after pwd panel, but not otherwise?
-		//console.log('typeof el.select='+ typeof el.select);
-		if (typeof el.select == 'function') {
-			//el.style.backgroundColor = 'yellow';
-			el.focus(); el.select();
-		}
+		//console.log('el.value='+ el.value);
+		w3_field_select(el, kiwi_isMobile()? false : true);
 	});
 }
 
@@ -3862,10 +3874,7 @@ function ident_complete()
 	console.log("ICMPL obj="+(typeof obj)+" name=<"+name+'>');
 	// okay for name="" to erase it
 	// fixme: size limited by <input size=...> but guard against binary data injection?
-	if (obj && typeof obj.select == 'function') {
-		//console.log('** ident_complete select');
-		obj.select();
-	}
+	w3_field_select(obj, kiwi_isMobile()? false : true);
 	writeCookie('ident', name);
 	ident_name = name;
 	need_name = true;
@@ -3950,20 +3959,24 @@ function panels_setup()
 		td('<select id="select-ext" onchange="freqset_select(); extint_select(this.value)">' +
 				'<option value="0" selected disabled>extensions</option>' +
 				extint_select_menu() +
-			'</select>', 'select-ext-cell') +
+			'</select>', 'select-ext-cell');
 
-		td('<span id="id-iOS-button" class="class-button"><span id="id-iOS-text" onclick="iOS_audio_start();">press</span></span>', 'id-iOS-cell');
-	
 	if (kiwi_is_iOS()) {
-	//if (true) {		// FIXME beta: remove once working
+	//if (true) {
+		var el = html('id-iOS-container');
+		el.innerHTML = w3_divs('id-iOS-audio w3-vcenter w3-hcenter', 'id-iOS-text', 'press');
+
+		var el = html('id-iOS-audio');
+		el.style.left = (window.innerWidth/2 - css_style_num(el,'width')/2)+"px";
+		el.style.top = (window.innerHeight/2 - css_style_num(el,'height')/2)+"px";
+		el.addEventListener("click", iOS_audio_start, false);
+
 		var iOS = html('id-iOS-text');
 		iOS.state = 1;
-		iOS.texts = [ 'press', 'for', 'iOS', 'audio' ];
+		iOS.texts = [ 'press', 'for', 'iOS', 'start' ];
 		iOS.button_timer =
 			setInterval('var iOS = html("id-iOS-text"); animate(iOS, "opacity", "", iOS.state&1^1, iOS.state&1, 1, 500, 30, \
-				function() { iOS.innerHTML = iOS.texts[iOS.state>>1&3]; }); iOS.state+=1;', 750);
-		html('select-ext').style.display = "none";
-		html('id-iOS-cell').style.display = "table-cell";
+				function() { iOS.innerHTML = iOS.texts[iOS.state>>1&3]; }); iOS.state += 1;', 750);
 	}
 	
 	html("id-params-2").innerHTML =
@@ -4258,11 +4271,9 @@ function iOS_audio_start()
    	kiwi_clearInterval(iOS.button_timer);
 		iOS.style.opacity = 1;
    	try { bufsrc.start(0); } catch(ex) { bufsrc.noteOn(0); }
-   	iOS.innerHTML = 'iOS';
-   	iOS.style.color = 'lime';
    } catch(ex) { add_problem("audio start"); }
-	html('select-ext').style.display = "table-cell";
-	html('id-iOS-cell').style.display = "none";
+
+	visible_block('id-iOS-audio', false);
    freqset_select();
 }
 
