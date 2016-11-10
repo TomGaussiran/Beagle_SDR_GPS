@@ -35,8 +35,6 @@ int pending_maj = -1, pending_min = -1;
 int force_build = 0;
 
 static void update_build(void *param)
-<<<<<<< HEAD
-=======
 {
 	int force_build = (int) (long) param;
 	
@@ -56,7 +54,6 @@ static void update_build(void *param)
 }
 
 static void update_task(void *param)
->>>>>>> jks-master
 {
 	int force_build = (int) (long) param;
 	
