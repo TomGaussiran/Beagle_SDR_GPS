@@ -4,8 +4,8 @@
 /* KiwiSDR W3.CSS extensions */
 /*****************************/
 
-.w3-idiv {
-	display: inline-block;
+.w3-show-inline {
+	display: inline;
 }
 
 .w3-pointer {
@@ -146,4 +146,10 @@
 {
     color: #fff !important;
     background-color: #4CAF50 !important
+}
+
+.w3-current {
+    color: rgb(255, 255, 255);
+    background-color: RGB(150, 150, 150);
+    font-weight: bold;
 }

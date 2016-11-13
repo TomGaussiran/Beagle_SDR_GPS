@@ -4,6 +4,7 @@
 	Useful stuff:
 
 	in w3.css:
+		w3-show-block
 		w3-show-inline-block
 		
 		w3-section: margin TB 16px
@@ -14,11 +15,22 @@
 		w3-margin: TBLR 16px
 
 	in w3_ext.css:
+		w3-show-inline
 		w3-vcenter
 		w3-override-(colors)
 
 	id="foo" on...(e.g. onclick)=func(this.id)
+
+
+	Notes about HTML/DOM:
 	
+	window.
+		inner{Width,Height}		does not include tool/scroll bars
+		outer{Width,Height}		includes tool/scroll bars
+	
+	element.
+		client{Width,Height}		viewable only; no: border, scrollbar, margin; yes: padding
+		offset{Width,Height}		viewable only; includes padding, border, scrollbars
 */
 
 
@@ -34,13 +46,15 @@ function w3_strip_quotes(s)
 }
 
 // a single-argument call that silently continues if func not found
-function w3_call(func, arg0, arg1)
+function w3_call(func, arg0, arg1, arg2)
 {
 	try {
 		var f = getVarFromString(func);
 		//console.log('w3_call: '+ func +'() = '+ (typeof f));
-		if (typeof f == "function")
-			f(arg0, arg1);
+		if (typeof f == "function") {
+			//var args = Array.prototype.slice.call(arguments);
+			f(arg0, arg1, arg2);
+		}
 	} catch(ex) {
 		console.log('w3_call '+ func +'()');
 		console.log(ex);
@@ -60,6 +74,50 @@ function w3_el_id(el_id)
 	if (typeof el_id == "string")
 		return html_id(el_id);
 	return (el_id);
+}
+
+function w3_iterate_children(el_id, func)
+{
+	var el = w3_el_id(el_id);
+	
+	for (var i=0; i < el.children.length; i++) {
+		var child_el = el.children[i];
+		func(child_el);
+	}
+}
+
+function w3_iterateDeep_children(el_id, func)
+{
+	var el = w3_el_id(el_id);
+	
+	for (var i=0; i < el.children.length; i++) {
+		var child_el = el.children[i];
+		func(child_el);
+		if (child_el.hasChildNodes)
+			w3_iterateDeep_children(child_el, func);
+	}
+}
+
+function w3_boundingBox_children(el_id)
+{
+	var bbox = { offsetLeft:1e99, offsetRight:0, offsetWidth:0 };
+	w3_iterateDeep_children(el_id, function(el) {
+		if (el.nodeName != 'DIV' && el.nodeName != 'IMG')
+			return;
+		//console.log(el);
+		//console.log(el.nodeName +' el.offsetLeft='+ el.offsetLeft +' el.offsetWidth='+ el.offsetWidth);
+		bbox.offsetLeft = Math.min(bbox.offsetLeft, el.offsetLeft);
+		bbox.offsetRight = Math.max(bbox.offsetRight, el.offsetLeft + el.offsetWidth);
+	});
+	bbox.offsetWidth = bbox.offsetRight - bbox.offsetLeft;
+	//console.log('BBOX offL='+ bbox.offsetLeft +' offR='+ bbox.offsetRight +' width='+ bbox.offsetWidth);
+	return bbox;
+}
+
+function w3_center_in_window(el_id)
+{
+	var el = w3_el_id(el_id);
+	return window.innerHeight/2 - el.clientHeight/2;
 }
 
 function w3_field_select(el_id, focus_blur)
@@ -245,7 +303,7 @@ function w3_click_show(grp, next_id, focus_blur)
 
 function w3_anchor(grp, id, text, _class, _default, focus_blur)
 {
-	if (_default == true) _class += 'w3-current';
+	if (_default == true) _class += ' w3-current';
 	var oc = 'onclick="w3_click_show('+ q(grp) +','+ q(id) +','+ focus_blur +')"';
 	var s = '<a id="'+ id +'" class="grp-'+ grp +' '+ _class +'" href="javascript:void(0)" '+ oc +'>'+ text +'</a> ';
 	//console.log('w3_anchor: '+ s);
@@ -396,28 +454,34 @@ function w3_select_change(ev, path, save_cb)
 
 	// save_cb is a string because can't pass an object to onclick
 	if (save_cb) {
-		getVarFromString(save_cb)(path, el.value);
+		getVarFromString(save_cb)(path, el.value, 0);
 	}
 }
 
 function w3_select(label, title, path, sel, opts, save_cb, label_ext)
 {
 	var label_s = w3_label(label, path, label_ext);
+	var first = '', offset = 0;
+	if (title != '') {
+		first = '<option value="0" '+ ((sel == 0)? 'selected':'') +' disabled>' + title +'</option>';
+		offset = 1;
+	}
+	
 	var s =
 		label_s +
 		'<select id="id-'+ path +'" onchange="w3_select_change(event, '+ q(path) +', '+ q(save_cb) +')">' +
-			'<option value="0" '+ ((sel == 0)? 'selected':'') +' disabled>' + title +'</option>';
-			var keys = Object.keys(opts);
-			for (var i=0; i < keys.length; i++) {
-				s += '<option value="'+ (i+1) +'" '+ ((i+1 == sel)? 'selected':'') +'>'+ opts[keys[i]] +'</option>';
-			}
+		first;
+		var keys = Object.keys(opts);
+		for (var i=0; i < keys.length; i++) {
+			s += '<option value="'+ (i+offset) +'" '+ ((i+offset == sel)? 'selected':'') +'>'+ opts[keys[i]] +'</option>';
+		}
 	s += '</select>';
 
 	// run the callback after instantiation with the initial control value
 	if (save_cb)
 		setTimeout(function() {
 			//console.log('w3_select: initial callback: '+ save_cb +'('+ q(path) +', '+ sel +')');
-			w3_call(save_cb, path, sel);
+			w3_call(save_cb, path, sel, 1);
 		}, 500);
 
 	//console.log(s);
@@ -426,12 +490,7 @@ function w3_select(label, title, path, sel, opts, save_cb, label_ext)
 
 function w3_select_enum(path, func)
 {
-	var sel = html_idname(path);
-	//console.log('w3_select_enum '+ path +' len='+ sel.children.length);
-	for (var i=0; i < sel.children.length; i++) {
-		var c = sel.children[i];
-		func(c);
-	}
+	w3_iterate_children('id-'+path, func);
 }
 
 function w3_select_value(path, idx)
@@ -444,29 +503,31 @@ function w3_select_value(path, idx)
 // slider
 ////////////////////////////////
 
-function w3_slider_change(ev, path, save_cb)
+function w3_slider_change(ev, complete, path, save_cb)
 {
 	var el = ev.currentTarget;
 	w3_check_restart(el);
 	
 	// save_cb is a string because can't pass an object to onclick
 	if (save_cb) {
-		getVarFromString(save_cb)(path, el.value);
+		getVarFromString(save_cb)(path, el.value, complete);
 	}
 }
 
-function w3_slider(label, path, val, min, max, save_cb, placeholder, label_ext)
+function w3_slider(label, path, val, min, max, step, save_cb, placeholder, label_ext)
 {
 	if (val == null)
 		val = '';
 	else
 		val = w3_strip_quotes(val);
-	var oc = 'oninput="w3_slider_change(event, '+ q(path) +', '+ q(save_cb) +')" ';
+	var oc = 'oninput="w3_slider_change(event, 0, '+ q(path) +', '+ q(save_cb) +')" ';
+	// change fires when the slider is done moving
+	var os = 'onchange="w3_slider_change(event, 1, '+ q(path) +', '+ q(save_cb) +')" ';
 	var label_s = w3_label(label, path, label_ext);
 	var s =
 		label_s +
 		'<input id="id-'+ path +'" class="" value=\''+ val +'\' ' +
-		'type="range" min="'+ min +'" max="'+ max +'" step="1" '+ oc +
+		'type="range" min="'+ min +'" max="'+ max +'" step="'+ step +'" '+ oc + os +
 		(placeholder? ('placeholder="'+ placeholder +'"') : '') +'>' +
 	'';
 	//console.log(s);
@@ -497,10 +558,10 @@ function w3_string_cb(el, val)
 // containers
 ////////////////////////////////
 
-function w3_idiv(prop)
+function w3_inline(prop)
 {
 	var narg = arguments.length;
-	var s = '<div class="w3-idiv '+ prop +'">';
+	var s = '<div class="w3-show-inline-block '+ prop +'">';
 		for (var i=1; i < narg; i++) {
 			s += arguments[i];
 		}
