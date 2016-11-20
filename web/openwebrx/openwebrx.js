@@ -48,7 +48,7 @@ var ws_aud, ws_fft;
 var inactivity_timeout_override = -1, inactivity_timeout_msg = false;
 
 var override_freq, override_mode, override_zoom, override_9_10, override_max_dB, override_min_dB;
-var use_gen = 0, override_ext = null;
+var gen_freq = 0, gen_attn = 0, override_ext = null;
 var squelch_threshold = 0;
 var debug_v = 0;		// a general value settable from the URI to be used during debugging
 var sb_trace = 0;
@@ -82,6 +82,7 @@ function kiwi_main()
 		'(?:$|[?&]audio=([0-9]*))?'+
 		'(?:$|[?&]timeout=([0-9]*))?'+
 		'(?:$|[?&]gen=([0-9.]*))?'+
+		'(?:$|[?&]attn=([0-9]*))?'+
 		'(?:$|[?&]ext=([a-z0-9.]*))?'+
 		'(?:$|[?&]cmap=([0-9]*))?'+
 		'(?:$|[?&]sqrt=([0-9]*))?'+
@@ -94,55 +95,73 @@ function kiwi_main()
 	
 	if (p) {
 		console.log("ARG len="+ p.length +" f="+p[1]+" m="+p[2]+" z="+p[3]+" sq="+p[4]+" blen="+p[5]+" wfdly="+p[6]+
-			" audio="+p[7]+" timeout="+p[8]+" gen="+p[9]+" ext="+p[10]+" cmap="+p[11]+" sqrt="+p[12]+" v="+p[13]);
-		if (p[1]) {
-			override_freq = parseFloat(p[1]);
+			" audio="+p[7]+" timeout="+p[8]+" gen="+p[9]+" attn="+p[10]+" ext="+p[11]+" cmap="+p[12]+" sqrt="+p[13]+" v="+p[14]);
+		var i = 1;
+		if (p[i]) {
+			override_freq = parseFloat(p[i]);
 		}
-		if (p[2]) {
-			override_mode = p[2];
+		i++;
+		if (p[i]) {
+			override_mode = p[i];
 		}
-		if (p[3]) {
-			override_zoom = p[3];
+		i++;
+		if (p[i]) {
+			override_zoom = p[i];
 		}
-		if (p[4]) {
-			console.log("ARG squelch_threshold="+p[4]+"/"+squelch_threshold);
-			squelch_threshold = parseFloat(p[4]);
+		i++;
+		if (p[i]) {
+			console.log("ARG squelch_threshold="+p[i]+"/"+squelch_threshold);
+			squelch_threshold = parseFloat(p[i]);
 		}
-		if (p[5]) {
-			console.log("ARG audio_buffer_min_length_sec="+p[5]+"/"+audio_buffer_min_length_sec);
-			audio_buffer_min_length_sec = parseFloat(p[5])/1000;
+		i++;
+		if (p[i]) {
+			console.log("ARG audio_buffer_min_length_sec="+p[i]+"/"+audio_buffer_min_length_sec);
+			audio_buffer_min_length_sec = parseFloat(p[i])/1000;
 		}
-		if (p[6]) {
-			console.log("ARG waterfall_delay="+p[6]+"/"+waterfall_delay);
-			waterfall_delay = parseFloat(p[6]);
+		i++;
+		if (p[i]) {
+			console.log("ARG waterfall_delay="+p[i]+"/"+waterfall_delay);
+			waterfall_delay = parseFloat(p[i]);
 		}
-		if (p[7]) {
-			console.log("ARG audio="+p[7]+"/"+audio_better_delay);
-			audio_better_delay = parseFloat(p[7]);
+		i++;
+		if (p[i]) {
+			console.log("ARG audio="+p[i]+"/"+audio_better_delay);
+			audio_better_delay = parseFloat(p[i]);
 		}
-		if (p[8]) {
-			console.log("ARG inactivity_timeout_override="+p[8]+"/"+inactivity_timeout_override);
-			var OFF_inactivity_timeout_override = parseFloat(p[8]);
+		i++;
+		if (p[i]) {
+			console.log("ARG inactivity_timeout_override="+p[i]+"/"+inactivity_timeout_override);
+			var OFF_inactivity_timeout_override = parseFloat(p[i]);
 		}
-		if (p[9]) {
-			console.log("ARG gen="+p[9]);
-			use_gen = parseFloat(p[9]);
+		i++;
+		if (p[i]) {
+			console.log("ARG gen="+p[i]);
+			gen_freq = parseFloat(p[i]);
 		}
-		if (p[10]) {
-			console.log("ARG override_ext="+p[10]);
-			override_ext = p[10];
+		i++;
+		if (p[i]) {
+			console.log("ARG attn="+p[i]);
+			gen_attn = parseInt(p[i]);
 		}
-		if (p[11]) {
-			console.log("ARG colormap_select="+p[11]);
-			colormap_select = p[11];
+		i++;
+		if (p[i]) {
+			console.log("ARG override_ext="+p[i]);
+			override_ext = p[i];
 		}
-		if (p[12]) {
-			console.log("ARG colormap_sqrt="+p[12]);
-			colormap_sqrt = p[12];
+		i++;
+		if (p[i]) {
+			console.log("ARG colormap_select="+p[i]);
+			colormap_select = p[i];
 		}
-		if (p[13]) {
-			console.log("ARG debug_v="+p[13]);
-			debug_v = p[13];
+		i++;
+		if (p[i]) {
+			console.log("ARG colormap_sqrt="+p[i]);
+			colormap_sqrt = p[i];
+		}
+		i++;
+		if (p[i]) {
+			console.log("ARG debug_v="+p[i]);
+			debug_v = p[i];
 		}
 	}
 	
@@ -1487,6 +1506,7 @@ function freq_to_bin(freq) {
 
 function bins_to_pixels_frac(cf, bins, zoom) {
 	var bin_ratio = bins / bins_at_zoom(zoom);
+	if (sb_trace) console.log('bins_to_pixels_frac bins='+ bins +' z='+ zoom +' ratio='+ bin_ratio);
 	if (bin_ratio > 1) bin_ratio = 1;
 	if (bin_ratio < -1) bin_ratio = -1;
 	var f_pixels = fft_size * bin_ratio;
@@ -1838,7 +1858,10 @@ function zoom_step(dir)
 		} else {
 		
 			// in, out
-			//if (dbgUs) sb_trace=1;
+			if (dbgUs) {
+				console.log('ZOOM IN/OUT');
+				sb_trace=1;
+			}
 			if (arguments.length > 1) {
 				var x_rel = arguments[1];
 				
@@ -1863,9 +1886,9 @@ function zoom_step(dir)
 	x_bin = clamp_xbin(x_bin);
 	var dbins = Math.abs(x_obin - x_bin);
 	var pixel_dx = bins_to_pixels(1, dbins, out? zoom_level:ozoom);
-	//console.log("Zs z"+ozoom+'>'+zoom_level+' b='+x_bin+'/'+x_obin+'/'+dbins+' bz='+bins_at_zoom(ozoom)+' r='+(dbins / bins_at_zoom(ozoom))+' px='+pixel_dx);
+	if (sb_trace) console.log("Zs z"+ozoom+'>'+zoom_level+' b='+x_bin+'/'+x_obin+'/'+dbins+' bz='+bins_at_zoom(ozoom)+' r='+(dbins / bins_at_zoom(ozoom))+' px='+pixel_dx);
 	var dz = zoom_level - ozoom;
-	//console.log('zoom_step oz='+ ozoom +' zl='+ zoom_level +' dz='+ dz +' pdx='+ pixel_dx);
+	if (sb_trace) console.log('zoom_step oz='+ ozoom +' zl='+ zoom_level +' dz='+ dz +' pdx='+ pixel_dx);
 	waterfall_zoom_canvases(dz, pixel_dx);
 	mkscale();
 	dx_schedule_update();
@@ -1890,14 +1913,14 @@ function page_scroll(norm_dir)
 var window_width;
 var waterfall_width;
 var waterfall_scrollable_height;
-var canvas_context;
-var canvases = [];
-var canvas_default_height = 200;
+
 var canvas_container;
 var canvas_phantom;
-var canvas_actual_line;
-var canvas_id = 0;
-var canvas_oneline_image;
+
+var wf_canvases = [];
+var wf_cur_canvas = null;
+var wf_canvas_default_height = 200;
+var wf_canvas_actual_line;
 
 // NB: canvas data width is fft_size, but displayed style width is waterfall_width (likely different),
 // so image is stretched to fit when rendered by browser.
@@ -1906,23 +1929,24 @@ function add_canvas()
 {	
 	var new_canvas = document.createElement("canvas");
 	new_canvas.width = fft_size;
-	new_canvas.height = canvas_default_height;
-	canvas_actual_line = canvas_default_height-1;
-	new_canvas.style.width = waterfall_width.toString()+"px";	
+	new_canvas.height = wf_canvas_default_height;
+	wf_canvas_actual_line = wf_canvas_default_height-1;
+	new_canvas.style.width = px(waterfall_width);	
 	new_canvas.style.left = 0;
-	new_canvas.openwebrx_height = canvas_default_height;	
-	new_canvas.style.height = new_canvas.openwebrx_height.toString()+"px";
+	new_canvas.openwebrx_height = wf_canvas_default_height;	
+	new_canvas.style.height = px(new_canvas.openwebrx_height);
 
 	// initially the canvas is one line "above" the top of the container
-	new_canvas.openwebrx_top = (-canvas_default_height+1);	
-	new_canvas.style.top = new_canvas.openwebrx_top.toString()+"px";
+	new_canvas.openwebrx_top = (-wf_canvas_default_height+1);	
+	new_canvas.style.top = px(new_canvas.openwebrx_top);
 
-	canvas_context = new_canvas.getContext("2d");
+	new_canvas.ctx = new_canvas.getContext("2d");
+	new_canvas.oneline_image = new_canvas.ctx.createImageData(fft_size, 1);
+
 	canvas_container.appendChild(new_canvas);
 	add_canvas_listner(new_canvas);
-	new_canvas.openwebrx_id = canvas_id++;
-	canvases.unshift(new_canvas);
-	canvas_oneline_image = canvas_context.createImageData(fft_size, 1);
+	wf_canvases.unshift(new_canvas);		// add to front of array which is top of waterfall
+	wf_cur_canvas = new_canvas;
 }
 
 var spectrum_canvas, spectrum_ctx;
@@ -1980,49 +2004,35 @@ function mouse_listner_ignore(obj)
 	obj.addEventListener("wheel", event_cancel, false);
 }
 
-canvas_maxshift = 0;
+wf_canvas_maxshift = 0;
 
-function shift_canvases()
+function wf_shift_canvases()
 {
 	// shift the canvases downward by increasing their individual top offsets
-	canvases.forEach(function(p) 
-	{
-		p.style.top = (p.openwebrx_top++).toString()+"px";
+	wf_canvases.forEach(function(p) {
+		p.style.top = px(p.openwebrx_top++);
 	});
 	
 	// retire canvases beyond bottom of scroll-back window
-	var p = canvases[canvases.length-1];	// last not including the phantom
-	if (p.openwebrx_top >= waterfall_scrollable_height) {
+	while (wf_canvases.length) {
+		var p = wf_canvases[wf_canvases.length-1];	// last not including the phantom
+		if (p == null || p.openwebrx_top < waterfall_scrollable_height)
+			break;
 		//p.style.display = "none";
 		canvas_container.removeChild(p);		// fixme: is this right?
-		canvases.pop();		// fixme: this alone makes scrollbar jerky
-		
-		/* doesn't work as expected
-		p.openwebrx_height--;
-		if (p.openwebrx_height <= 0) {
-			//console.log("XX "+p.openwebrx_top+' '+canvas_container.clientHeight);
-			p.style.display = "none";
-			//var ctx = p.getContext("2d"); ctx.fillStyle = "Red"; ctx.fillRect(0,0,p.width,p.height);
-			canvases.pop();
-		} else {
-			//p.style.height = p.openwebrx_height.toString()+"px";
-			p.beginPath();
-			p.rect(0, 0, p.openwebrx_width, p.openwebrx_height);
-			p.clip();
-		}
-		*/
+		wf_canvases.pop();		// fixme: this alone makes scrollbar jerky
 	}
 	
 	// set the height of the phantom to fill the unused space
-	canvas_maxshift++;
-	if (canvas_maxshift < canvas_container.clientHeight) {
-		canvas_phantom.style.top = canvas_maxshift.toString()+"px";
-		canvas_phantom.style.height = (canvas_container.clientHeight - canvas_maxshift).toString()+"px";
+	wf_canvas_maxshift++;
+	if (wf_canvas_maxshift < canvas_container.clientHeight) {
+		canvas_phantom.style.top = px(wf_canvas_maxshift);
+		canvas_phantom.style.height = px(canvas_container.clientHeight - wf_canvas_maxshift);
 		canvas_phantom.style.display = "block";
 	} else
 		canvas_phantom.style.display = "none";
 	
-	//canvas_container.style.height = (((canvases.length-1)*canvas_default_height)+(canvas_default_height-canvas_actual_line)).toString()+"px";
+	//canvas_container.style.height = px(((wf_canvases.length-1)*wf_canvas_default_height)+(wf_canvas_default_height-wf_canvas_actual_line));
 	//canvas_container.style.height = "100%";
 }
 
@@ -2036,8 +2046,7 @@ function resize_canvases(zoom)
 	var zoom_value = 0;
 	//console.log("RESIZE z"+zoom_level+" nw="+new_width+" zv="+zoom_value);
 
-	canvases.forEach(function(p) 
-	{
+	wf_canvases.forEach(function(p) {
 		p.style.width = new_width;
 		p.style.left = zoom_value;
 	});
@@ -2091,21 +2100,30 @@ var redraw_spectrum_dB_scale = false;
 var spectrum_colormap, spectrum_colormap_transparent;
 var spectrum_update_rate_Hz = 10;	// limit update rate since rendering spectrum is currently expensive
 var spectrum_update = 0, spectrum_last_update = 0;
+var spectrum_filtered = 1;
 
 function spectrum_init()
 {
 	spectrum_colormap = spectrum_ctx.createImageData(1, spectrum_canvas.height);
 	spectrum_colormap_transparent = spectrum_ctx.createImageData(1, spectrum_canvas.height);
 	update_maxmindb_sliders();
-	mk_dB_bands();
+	spectrum_dB_bands();
 	setInterval(function() { spectrum_update++ }, 1000 / spectrum_update_rate_Hz);
 }
 
+function spectrum_filter(filter)
+{
+	spectrum_filtered = filter;
+	need_clear_specavg = true;
+}
+
 // based on WF max/min range, compute color banding each 10 dB for spectrum display
-function mk_dB_bands()
+function spectrum_dB_bands()
 {
 	dB_bands = [];
 	var i=0;
+	var color_shift_dB = -8;	// give a little headroom to the spectrum colormap
+	var barmax = maxdb, barmin = mindb + color_shift_dB;
 	var rng = barmax-barmin;
 	//console.log("DB barmax="+barmax+" barmin="+barmin+" maxdb="+maxdb+" mindb="+mindb);
 	var last_norm = 0;
@@ -2140,6 +2158,11 @@ var specavg = [];
 
 function waterfall_add(dat)
 {
+	if (dat == null) return;
+	//var canvas = wf_canvases[0];
+	var canvas = wf_cur_canvas;
+	if (canvas == null) return;
+	
 	var u32View = new Uint32Array(dat, 4, 3);
 	var x_bin_server = u32View[0];		// bin & zoom from server at time data was queued
 	var x_zoom_server = u32View[1];
@@ -2190,7 +2213,7 @@ function waterfall_add(dat)
 
 		if (clear_specavg) {
 			for (var x=0; x<sw; x++) {
-				specavg[x] = waterfall_index(data[x]);
+				specavg[x] = spectrum_color_index(data[x]);
 			}
 			clear_specavg = false;
 		}
@@ -2221,26 +2244,33 @@ function waterfall_add(dat)
 	
 	// Add line to waterfall image			
 	
+	var oneline_image = canvas.oneline_image;
 	var zwf, color;
+	
 	if (spectrum_display && need_spectrum_update) {
 		for (var x=0; x<w; x++) {
 			// wf
 			zwf = waterfall_color_index(data[x]);
 			color = color_map[zwf];
 			for (var i=0; i<4; i++)
-				canvas_oneline_image.data[x*4+i] = ((color>>>0) >> ((3-i)*8)) & 0xff;
+				oneline_image.data[x*4+i] = ((color>>>0) >> ((3-i)*8)) & 0xff;
 			
 			// spectrum
-			if (x < sw) {
-			
-				// non-linear spectrum filter from Rocky (Alex, VE3NEA)
-				// see http://www.dxatlas.com/rocky/advanced.asp
-				var ysp = waterfall_index(data[x]);
-				var iir_gain = 1 - Math.exp(-0.2 * ysp/255)
-				var z = specavg[x];
-				z = z + iir_gain * (ysp - z);
-				if (z > 255) z = 255; if (z < 0) z = 0;
-				specavg[x] = z;
+			if (x < sw) {			
+				var ysp = spectrum_color_index(data[x]);
+
+				if (spectrum_filtered) {
+					// non-linear spectrum filter from Rocky (Alex, VE3NEA)
+					// see http://www.dxatlas.com/rocky/advanced.asp
+					var iir_gain = 1 - Math.exp(-0.2 * ysp/255)
+					var z = specavg[x];
+					z = z + iir_gain * (ysp - z);
+					if (z > 255) z = 255; if (z < 0) z = 0;
+					specavg[x] = z;
+				} else {
+					z = ysp;
+					if (z > 255) z = 255; if (z < 0) z = 0;
+				}
 
 				// draw the spectrum based on the spectrum colormap which should
 				// color the 10 dB bands appropriately
@@ -2256,12 +2286,12 @@ function waterfall_add(dat)
 			color = color_map[zwf];
 	
 			for (var i=0; i<4; i++) {
-				canvas_oneline_image.data[x*4+i] = ((color>>>0) >> ((3-i)*8)) & 0xff;
+				oneline_image.data[x*4+i] = ((color>>>0) >> ((3-i)*8)) & 0xff;
 			}
 		}
 	}
 	
-	canvas_context.putImageData(canvas_oneline_image, 0, canvas_actual_line);
+	canvas.ctx.putImageData(oneline_image, 0, wf_canvas_actual_line);
 	
 	// if data from server hasn't caught up to our panning or zooming then fix it
 	var pixel_dx;
@@ -2274,7 +2304,7 @@ function waterfall_add(dat)
 		var pixel_dx = bins_to_pixels(2, dbins, out? zoom_level:x_zoom_server);
 		if (sb_trace)
 		 console.log("WF Z fix z"+x_zoom_server+'>'+zoom_level+' out='+out+' b='+x_bin+'/'+x_bin_server+'/'+dbins+" px="+pixel_dx);
-		waterfall_zoom(canvases[0], canvas_context, dz, canvas_actual_line, pixel_dx);
+		waterfall_zoom(canvas, dz, wf_canvas_actual_line, pixel_dx);
 		
 		// x_bin_server has changed now that we've zoomed
 		x_bin_server += out? -dbins : dbins;
@@ -2284,20 +2314,22 @@ function waterfall_add(dat)
 	if (x_bin != x_bin_server) {
 		pixel_dx = bins_to_pixels(3, x_bin - x_bin_server, zoom_level);
 		if (sb_trace)
-			console.log("WF bin fix L="+canvas_actual_line+" xb="+x_bin+" xbs="+x_bin_server+" pdx="+pixel_dx);
-		waterfall_pan(canvases[0], canvas_context, canvas_actual_line, pixel_dx);
+			console.log("WF bin fix L="+wf_canvas_actual_line+" xb="+x_bin+" xbs="+x_bin_server+" pdx="+pixel_dx);
+		waterfall_pan(canvas, wf_canvas_actual_line, pixel_dx);
 		if (sb_trace) console.log('WF bin fixed');
 	}
 
 	if (sb_trace && x_bin == x_bin_server && zoom_level == x_zoom_server) sb_trace=0;
-	canvas_actual_line--;
-	shift_canvases();
-	if (canvas_actual_line < 0) add_canvas();
+	wf_canvas_actual_line--;
+	wf_shift_canvases();
+	if (wf_canvas_actual_line < 0) add_canvas();
 }
 
-function waterfall_pan(cv, ctx, line, dx)
+function waterfall_pan(cv, line, dx)
 {
+	var ctx = cv.ctx;
 	var y, w, h;
+	
 	if (line == -1) {
 		y = 0;
 		h = cv.height;
@@ -2331,7 +2363,6 @@ var last_pixels_frac = 0;
 
 function waterfall_pan_canvases(bins)
 {
-	var cv, ctx;
 	if (!bins) return;
 	
 	var x_obin = x_bin;
@@ -2341,14 +2372,12 @@ function waterfall_pan_canvases(bins)
 	var f_dx = bins_to_pixels_frac(4, x_bin - x_obin, zoom_level) + last_pixels_frac;		// actual movement allowed due to clamping
 	var i_dx = Math.round(f_dx);
 	last_pixels_frac = f_dx - i_dx;
-	//console.log("PAN z="+zoom_level+" xb="+x_bin+" db="+(x_bin - x_obin)+" f_dx="+f_dx+" i_dx="+i_dx+" lpf="+last_pixels_frac);
+	if (sb_trace) console.log("PAN z="+zoom_level+" xb="+x_bin+" db="+(x_bin - x_obin)+" f_dx="+f_dx+" i_dx="+i_dx+" lpf="+last_pixels_frac);
 	if (!i_dx) return;
 
-	for (var i=0; i<canvases.length; i++) {
-		cv = canvases[i];
-		ctx = cv.getContext("2d");
-		waterfall_pan(cv, ctx, -1, i_dx);
-	}
+	wf_canvases.forEach(function(cv) {
+		waterfall_pan(cv, -1, i_dx);
+	});
 	
 	ws_fft_send("SET zoom="+ zoom_level +" start="+ x_bin);
 	
@@ -2362,11 +2391,15 @@ function waterfall_pan_canvases(bins)
 		check_band(0);
 }
 
-function waterfall_zoom(cv, ctx, dz, line, x)
+function waterfall_zoom(cv, dz, line, x)
 {
+	var ctx = cv.ctx;
 	var w = cv.width;
-	var nw = w / (1 << Math.abs(dz));
+	var zf = 1 << Math.abs(dz);
+	var pw = w / zf;
+	var fx;
 	var y, h;
+	
 	if (line == -1) {
 		y = 0;
 		h = cv.height;
@@ -2374,24 +2407,54 @@ function waterfall_zoom(cv, ctx, dz, line, x)
 		y = line;
 		h = 1;
 	}
+	if (sb_trace) console.log('waterfall_zoom w='+ w +' h='+ h +' pw='+ pw +' zf='+ zf);
 
 	if (dz < 0) {		// zoom out
-		if (w != 0) ctx.drawImage(cv, 0,y,w,h, x,y,nw,h);
+		if (w != 0) ctx.drawImage(cv, 0,y,w,h, x,y,pw,h);
 		ctx.fillStyle = "Black";
 		ctx.fillRect(0,y,x,y+h);
-		ctx.fillRect(x+nw,y,w,y+h);
+		ctx.fillRect(x+pw,y,w,y+h);
 	} else {			// zoom in
 		try {
 			if (w != 0) {
-				if (sb_trace) console.log('WFZ x='+x+' y='+y+' nw='+nw+' w='+w+' h='+h+' dz='+dz);
-				ctx.drawImage(cv, x,y,nw,h, 0,y,w,h);
+				if (sb_trace) console.log('WFZ-in srcX='+ x +'/'+ (x+pw) +'(pw='+ pw +') dstX=0/'+ w);
+				if (dbgUs) {
+					var fill_hi = false, fill_lo = false;
+					if ((x+pw) > w) {
+						cw = w-x;		// clamp width
+						fx = (w-x) * zf;
+						if (sb_trace)
+							console.log('CLAMP HI fx='+ fx);
+						fill_hi = true;
+					}
+					if (x < 0) {
+						fx = -x * zf;
+						if (sb_trace)
+							console.log('CLAMP LO fx='+ fx);
+						fill_lo = true;
+					}
+				}
+				
+				ctx.drawImage(cv, x,y,pw,h, 0,y,w,h);
+				if (dbgUs) {
+					ctx.fillStyle = "cyan";
+					if (fill_hi) ctx.fillRect(fx,y, w,y+h);
+					if (fill_lo) ctx.fillRect(0,y, fx,y+h);
+				}
 				
 				// FIXME XXX why did we put this in here? (quite a while ago)
 				// It fails a simple case: overwrites the edges going z0 -> z1
 				// Doesn't zooming in always result in a 1024px wide result with dest_x = 0?
 				//ctx.fillStyle = "Black";
+				//ctx.fillRect(x+pw,y,w,y+h);
+
+				//var rw = w - (w-x) * zf;
+				//if (sb_trace) console.log('WFZ x='+x+' y='+y+' pw='+pw+' w='+w+' h='+h+' dz='+dz+' rw='+rw);
+				//if (rw > 0)
+				//	ctx.fillRect(w-rw,y, w,y+h);
+
 				//ctx.fillRect(0,y,x,y+h);
-				//ctx.fillRect(x+nw,y,w,y+h);
+				//ctx.fillRect(x+pw,y,w,y+h);
 			}
 		} catch(ex) {
 		   console.log("EX2 dz="+dz+" x="+x+" y="+y+" w="+w+" h="+h);		// fixme remove
@@ -2401,16 +2464,13 @@ function waterfall_zoom(cv, ctx, dz, line, x)
 
 function waterfall_zoom_canvases(dz, x)
 {
-	var cv, ctx;
+	if (sb_trace) console.log("ZOOM z"+zoom_level+" xb="+x_bin+" x="+x);
 
-	for (var i=0; i<canvases.length; i++) {
-		cv = canvases[i];
-		ctx = cv.getContext("2d");
-		waterfall_zoom(cv, ctx, dz, -1, x);
-	}
+	wf_canvases.forEach(function(cv) {
+		waterfall_zoom(cv, dz, -1, x);
+	});
 	
 	need_clear_specavg = true;
-	//console.log("ZOOM z"+zoom_level+" xb="+x_bin+" x="+x);
 }
 
 // window:
@@ -2441,22 +2501,18 @@ function resize_waterfall_container(check_init)
 
 var waterfall_delay = 0;
 var waterfall_queue = [];
-var waterfall_queue_seq = [];
-var waterfall_queue_spacing = [];
 var waterfall_last_add = 0;
 
 function waterfall_add_queue(what)
 {
-	waterfall_queue.push(what);
-
 	var u32View = new Uint32Array(what, 4, 3);
 	var seq = u32View[2];
-	waterfall_queue_seq.push(seq);
 
 	var now = Date.now();
 	var spacing = waterfall_last_add? (now - waterfall_last_add) : 0;
-	waterfall_queue_spacing.push(spacing);
 	waterfall_last_add = now;
+
+	waterfall_queue.push({ data:what, seq:seq, spacing:spacing });
 }
 
 var init_zoom_set = false;
@@ -2477,19 +2533,20 @@ function waterfall_dequeue()
 	
 	while (waterfall_queue.length != 0) {
 
-		var seq = waterfall_queue_seq[0];
+		var seq = waterfall_queue[0].seq;
 		if (seq > (audio_sequence + waterfall_delay))
 			return;		// too soon
 
 		var now = Date.now();
-		if (seq == audio_sequence && now < (waterfall_last_out + waterfall_queue_spacing[0]))
+		if (seq == audio_sequence && now < (waterfall_last_out + waterfall_queue[0].spacing))
 			return;		// need spacing
 	
 		// seq < audio_sequence or seq == audio_sequence and spacing is okay
 		waterfall_last_out = now;
-		waterfall_add(waterfall_queue.shift());
-		waterfall_queue_seq.shift();
-		waterfall_queue_spacing.shift();
+		
+		var data = waterfall_queue[0].data;
+		waterfall_queue.shift();
+		waterfall_add(data);
 	}
 }
 
@@ -2558,10 +2615,19 @@ function mkcolormap()
 
 function do_waterfall_index(db_value, sqrt)
 {
-	// convert to negative-only signed dBm (i.e. -256 to -1 dBm)
-	// done this way because -127 is the smallest value in an int8 which isn't enough
-	db_value = -(255 - db_value);		
+	// What is transmitted over the network are unsigned 55..255 values (compressed) which
+	// correspond to -200..0 dBm. Convert here to back to <= 0 signed dBm.
+	// Done this way because -127 is the smallest value in an int8 which isn't enough
+	// to hold our smallest dBm value and also we don't expect dBm values > 0 to be needed.
+	//
+	// If we map it the reverse way, (u1_t) 0..255 => 0..-255 dBm (which is more natural), then we get
+	// noise in the bottom bins due to funny interaction of the reversed values with the
+	// ADPCM compression for reasons we don't understand.
 	
+	if (db_value < 0) db_value = 0;
+	if (db_value > 255) db_value = 255;
+	db_value = -(255 - db_value);
+
 	if (db_value < mindb) db_value = mindb;
 	if (db_value > maxdb) db_value = maxdb;
 	var relative_value = db_value - mindb;
@@ -2595,7 +2661,7 @@ function do_waterfall_index(db_value, sqrt)
 	return i;
 }
 
-function waterfall_index(db_value)
+function spectrum_color_index(db_value)
 {
 	return do_waterfall_index(db_value, 0);
 }
@@ -2645,7 +2711,6 @@ function waterfall_mkcolor(db_value)
 	remain=(value_percent-percent_for_one_color*index)/percent_for_one_color;
 	return color_between(color_scale[index+1],color_scale[index],remain);
 }
-*/
 
 function color_between(first, second, percent)
 {
@@ -2657,6 +2722,7 @@ function color_between(first, second, percent)
 	}
 	return output>>>0;
 }
+*/
 	
 /*
 window.setInterval(function(){ 
@@ -3227,9 +3293,15 @@ function select_band(op)
 
 	//console.log("SEL BAND"+op+" "+b.name+" freq="+freq+((mode != null)? " mode="+mode:""));
 	last_selected_band = op;
-	//if (dbgUs) sb_trace=1;
+	if (dbgUs) {
+		console.log("SET BAND cur z="+zoom_level+" xb="+x_bin);
+		sb_trace=1;
+	}
 	freqmode_set_dsp_kHz(freq, mode);
 	zoom_step(zoom.to_band, b);		// pass band to disambiguate nested bands in band menu
+	if (sb_trace) {
+		console.log("SET BAND after z="+zoom_level+" xb="+x_bin);
+	}
 }
 
 function check_band(freq)
@@ -3254,7 +3326,6 @@ var maxdb;
 var mindb_un;
 var mindb;
 var full_scale;
-var barmax = 0, barmin = -170		// mindb @ z0 - zoom_correction * zoom_levels_max
 
 function init_scale_dB()
 {
@@ -3479,7 +3550,10 @@ function dx(gid, freq, moff, flags, ident)
 					var s = slot - dx_ibp_list[i].off;
 					if (s < 0) s = 18 + s;
 					//console.log('IBP '+ min +':'+ sec +' slot='+ slot +' off='+ off +' s='+ s +' '+ dx_ibp[s*2] +' '+ dx_ibp[s*2+1]);
-					html(dx_ibp_list[i].idx +'-id-dx-label').innerHTML = 'IBP: '+ dx_ibp[s*2] +' '+ dx_ibp[s*2+1];
+					
+					// label may now be out of DOM if we're panning & zooming around
+					var el = html_id(dx_ibp_list[i].idx +'-id-dx-label');
+					if (el) el.innerHTML = 'IBP: '+ dx_ibp[s*2] +' '+ dx_ibp[s*2+1];
 				}
 			}
 			dx_ibp_lastsec = rsec;
@@ -4025,7 +4099,7 @@ function panels_setup()
 		step_9_10 = override_9_10;
 		//console.log('STEP_9_10 init to override: '+ override_9_10);
 	} else {
-		var init_AM_BCB_chan = getVarFromString('cfg.init.AM_BCB_chan');
+		var init_AM_BCB_chan = ext_get_cfg_param('init.AM_BCB_chan');
 		if (init_AM_BCB_chan == null || init_AM_BCB_chan == undefined) {
 			step_9_10 = 0;
 			//console.log('STEP_9_10 init to default: 0');
@@ -4163,14 +4237,14 @@ function panels_setup()
 
 	// id-msgs
 	
-	var contact_admin = getVarFromString('cfg.contact_admin');
+	var contact_admin = ext_get_cfg_param('contact_admin');
 	if (typeof contact_admin == 'undefined') {
 		// hasn't existed before: default to true
 		//console.log('contact_admin: INIT true');
 		contact_admin = true;
 	}
 
-	var admin_email = getVarFromString('cfg.admin_email');
+	var admin_email = ext_get_cfg_param('admin_email');
 	//console.log('contact_admin='+ contact_admin +' admin_email='+ admin_email);
 	admin_email = (contact_admin != 'undefined' && contact_admin != null && contact_admin == true && admin_email != 'undefined' && admin_email != null)? admin_email : null;
 
@@ -4328,7 +4402,7 @@ function setmindb(done, str)
 function setmaxmindb(done)
 {
 	full_scale = maxdb - mindb;
-	mk_dB_bands();
+	spectrum_dB_bands();
    ws_fft_send("SET maxdb="+maxdb.toFixed(0)+" mindb="+mindb.toFixed(0));
 	need_clear_specavg = true;
    if (done) {
@@ -4342,7 +4416,7 @@ function update_maxmindb_sliders()
 {
 	mindb = mindb_un - zoomCorrection();
 	full_scale = maxdb - mindb;
-	mk_dB_bands();
+	spectrum_dB_bands();
 	
 	if (cur_mode != 'nbfm') {
 		html('slider-one-value').value = maxdb;
@@ -4705,7 +4779,7 @@ function panel_set_vis_button(id)
 function panel_set_width(id, width)
 {
 	var panel = html_idname(id);
-	if (width == -1)
+	if (width == undefined)
 		width = panel.defaultWidth;
 	panel.style.width = px(width);
 	panel.uiWidth = width;
@@ -4770,6 +4844,12 @@ var sendmail = function (to, subject) {
 	window.location.href = s;
 }
 
+function set_gen(freq, attn)
+{
+	ws_aud_send("SET genattn="+ attn.toFixed(0));
+	ws_aud_send("SET gen="+ freq +" mix=-1");
+}
+
 
 // ========================================================
 // =======================  >WEBSOCKET  ===================
@@ -4805,21 +4885,16 @@ function open_websocket(stream, tstamp, cb_recv)
 		ws.up = true;
 		ws.send("SERVER DE CLIENT openwebrx.js "+ws.stream);
 		//divlog("WebSocket opened to "+ws_url);
+		
 		if (ws.stream == "AUD") {		// fixme: remove these eventually
-			
 			ws.send("SET squelch=0 max="+ squelch_threshold.toFixed(0));
 			ws.send("SET autonotch=0");
-			//ws.send("SET genattn=131071");	// 0x1ffff
-			ws.send("SET genattn=1023");	// 0x3ff
-			var gen_freq = 0;
-			//if (dbgUs && initCookie('ident', "").search('gen') != -1)
-			if (use_gen)
-				gen_freq = (override_freq*1000).toFixed(0);
-			ws.send("SET gen="+(gen_freq/1000).toFixed(3)+" mix=-1");
+			set_gen(gen_freq, gen_attn);
 			ws.send("SET mod=am low_cut=-4000 high_cut=4000 freq=1000");
 			set_agc();
 			ws.send("SET browser="+navigator.userAgent);
 		} else
+		
 		if (ws.stream == "FFT") {
 			ws.send("SET send_dB=1");
 			// fixme: okay to remove this now?
@@ -4947,7 +5022,6 @@ function on_ws_recv(evt, ws)
 					audio_compression = parseInt(param[1]);
 					//console.log("COMP audio_compression="+audio_compression);
 					break;
-
 				case "kiwi_up":
 					kiwi_up(parseInt(param[1]));
 					break;

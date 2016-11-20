@@ -55,6 +55,7 @@ const char *mode_s[7] = { "am", "amn", "usb", "lsb", "cw", "cwn", "nbfm" };
 const char *modu_s[7] = { "AM", "AMN", "USB", "LSB", "CW", "CWN", "NBFM" };
 
 float g_genfreq, g_genampl, g_mixfreq;
+int S_meter_cal;
 
 void w2a_sound_init()
 {
@@ -86,7 +87,7 @@ void w2a_sound(void *param)
 	static u4_t ncnt[RX_CHANS];
 	const char *s;
 	
-	double freq=-1, _freq, gen=0, _gen, locut=0, _locut, hicut=0, _hicut, mix;
+	double freq=-1, _freq, gen=-1, _gen, locut=0, _locut, hicut=0, _hicut, mix;
 	int mode=-1, _mode, autonotch=-1, _autonotch, genattn=0, _genattn, mute;
 	double z1 = 0;
 
@@ -95,7 +96,7 @@ void w2a_sound(void *param)
 	//printf("### frate %f rate %d\n", frate, rate);
 	#define ATTACK_TIMECONST .01	// attack time in seconds
 	float sMeterAlpha = 1.0 - expf(-1.0/((float) frate * ATTACK_TIMECONST));
-	float sMeterAvg = 0;
+	float sMeterAvg_dB = 0;
 	
 	snd->seq = 0;
 	
@@ -330,7 +331,7 @@ void w2a_sound(void *param)
 					gen = _gen;
 					f_phase = gen * kHz / adc_clock;
 					i_phase = f_phase * pow(2,32);
-					//printf("sound %d: GEN  %.3f kHz phase %.3f 0x%08x\n",
+					//printf("sound %d: GEN %.3f kHz phase %.3f 0x%08x\n",
 					//	rx_chan, gen, f_phase, i_phase);
 					if (do_sdr) spi_set(CmdSetGen, 0, i_phase);
 					if (do_sdr) ctrl_clr_set(CTRL_USE_GEN, gen? CTRL_USE_GEN:0);
@@ -346,7 +347,7 @@ void w2a_sound(void *param)
 				if (genattn != _genattn) {
 					genattn = _genattn;
 					if (do_sdr) spi_set(CmdSetGenAttn, 0, (u4_t) genattn);
-					//printf("===> CmdSetGenAttn %d\n", genattn);
+					//printf("===> CmdSetGenAttn %d 0x%x\n", genattn, genattn);
 					if (rx_chan == 0) g_genampl = genattn / (float)((1<<17)-1);
 				}
 			
@@ -556,15 +557,14 @@ void w2a_sound(void *param)
 				float re = (float) f_sa->re, im = (float) f_sa->im;
 				float pwr = re*re + im*im;
 				float pwr_dB = 10.0 * log10f((pwr / SND_MAX_PWR) + 1e-30);
-				sMeterAvg = (1.0 - sMeterAlpha)*sMeterAvg + sMeterAlpha*pwr_dB;
+				sMeterAvg_dB = (1.0 - sMeterAlpha)*sMeterAvg_dB + sMeterAlpha*pwr_dB;
 				f_sa++;
 			
-				// S-meter value in audio packet is less often than if we send it from here
+				// S-meter value in audio packet is sent less often than if we send it from here
 				if (receive_S_meter != NULL && (j == 0 || j == ns_out/2))
-					receive_S_meter(rx_chan, sMeterAvg + SMETER_CALIBRATION);
+					receive_S_meter(rx_chan, sMeterAvg_dB + S_meter_cal);
 			}
 			
-			//jks if (ext_users[rx_chan].receive_iq != NULL)
 			if (ext_users[rx_chan].receive_iq != NULL && mode != MODE_NBFM)
 				ext_users[rx_chan].receive_iq(rx_chan, 0, ns_out, f_samps);
 			
@@ -693,7 +693,7 @@ void w2a_sound(void *param)
 				
 		// send s-meter data with each audio packet
 		#define SMETER_BIAS 127.0
-		float sMeter_dBm = sMeterAvg + SMETER_CALIBRATION;
+		float sMeter_dBm = sMeterAvg_dB + S_meter_cal;
 		if (sMeter_dBm < -127.0) sMeter_dBm = -127.0; else
 		if (sMeter_dBm >    3.4) sMeter_dBm =    3.4;
 		u2_t sMeter = (u2_t) ((sMeter_dBm + SMETER_BIAS) * 10);

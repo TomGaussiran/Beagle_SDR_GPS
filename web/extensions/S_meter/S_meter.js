@@ -78,7 +78,7 @@ var S_meter_data_canvas;
 function S_meter_controls_setup()
 {
    var data_html =
-      '<div id="id-S_meter-data" style="left:200px; width:1044px; height:200px; background-color:mediumBlue; position:relative; display:none" title="S_meter">' +
+      '<div id="id-S_meter-data" style="left:200px; width:1044px; height:200px; background-color:mediumBlue; position:relative; display:none" title="S-meter graph">' +
    		'<canvas id="id-S_meter-data-canvas" width="1024" height="180" style="position:absolute; padding: 10px 10px 10px 10px;"></canvas>'+
       '</div>';
 
@@ -101,8 +101,10 @@ function S_meter_controls_setup()
 			w3_divs('w3-container', 'w3-tspace-8',
 				w3_divs('', 'w3-medium w3-text-aqua', '<b>S-meter graph</b>'),
 				w3_select('Range', '', 'S_meter.range', S_meter.range, range_s, 'S_meter_range_select_cb'),
-				w3_slider('Scale max', 'S_meter.maxdb', S_meter.maxdb, -160, 0, 10, 'S_meter_maxdb_cb'),
-				w3_slider('Scale min', 'S_meter.mindb', S_meter.mindb, -160, 0, 10, 'S_meter_mindb_cb'),
+				w3_divs('id-S_meter-scale-sliders', '',
+					w3_slider('Scale max', 'S_meter.maxdb', S_meter.maxdb, -160, 0, 10, 'S_meter_maxdb_cb'),
+					w3_slider('Scale min', 'S_meter.mindb', S_meter.mindb, -160, 0, 10, 'S_meter_mindb_cb')
+				),
 				w3_slider('Speed', 'S_meter.speed', S_meter.speed, 1, S_meter_speed_max, 1, 'S_meter_speed_cb'),
 				w3_divs('', 'w3-show-inline w3-hspace-16',
 					w3_select('Marker rate', '', 'S_meter.marker', S_meter.marker, marker_s, 'S_meter_marker_select_cb'),
@@ -127,9 +129,9 @@ function S_meter_controls_setup()
 	S_meter_speed_cb('S_meter.speed', S_meter.speed);
 	
 	ext_send('SET run=1');
-	S_meter_clear();
 
-	S_meter_update_interval = setInterval('S_meter_update()', 1000);
+	S_meter_update_interval = setInterval('S_meter_update(0)', 1000);
+	S_meter_update(1);
 }
 
 function S_meter_resize()
@@ -148,8 +150,11 @@ function S_meter_range_select_cb(path, idx, first)
 	if (first) return;
 
 	S_meter_range = +idx;
-	if (S_meter_range == S_meter_range_e.MANUAL)
-		S_meter_rescale();
+	if (S_meter_range == S_meter_range_e.MANUAL) {
+		w3_show_block('id-S_meter-scale-sliders');
+	} else {
+		w3_hide('id-S_meter-scale-sliders');
+	}
 }
 
 function S_meter_maxdb_cb(path, val, complete)
@@ -159,7 +164,8 @@ function S_meter_maxdb_cb(path, val, complete)
 	w3_num_cb(path, maxdb.toString());
 	w3_set_label('Scale max '+ maxdb.toString() +' dBm', path);
 
-	if (complete) S_meter_rescale();
+	//if (complete)
+		S_meter_rescale();
 }
 
 function S_meter_mindb_cb(path, val, complete)
@@ -169,7 +175,8 @@ function S_meter_mindb_cb(path, val, complete)
 	w3_num_cb(path, mindb.toString());
 	w3_set_label('Scale min '+ mindb.toString() +' dBm', path);
 
-	if (complete) S_meter_rescale();
+	//if (complete)
+		S_meter_rescale();
 }
 
 var S_meter_speed;	// not the same as S_meter.speed
@@ -198,17 +205,17 @@ function S_meter_clear_cb(path, val)
 }
 
 var S_meter_update_interval;
-var sm_last_freq = 0;
-var sm_last_offset = 0;
+var sm_last_freq;
+var sm_last_offset;
 
 // detect when frequency or offset has changed and restart graph
-function S_meter_update()
+function S_meter_update(init)
 {
 	var freq = ext_get_freq();
 	var offset = freq - ext_get_carrier_freq();
 	
 	// don't restart on mode(offset) change so user can switch and see difference
-	if (freq != sm_last_freq /*|| offset != sm_last_offset*/) {
+	if (init || freq != sm_last_freq /*|| offset != sm_last_offset*/) {
 		S_meter_clear();
 		//console.log('freq/offset change');
 		sm_last_freq = freq;
@@ -379,7 +386,6 @@ function S_meter_blur()
 	ext_send('SET run=0');
 	S_meter_visible(0);		
 	kiwi_clearInterval(S_meter_update_interval);
-	ext_set_controls_width(-1);	// restore width in case it is currently not the default
 }
 
 // called to display HTML for configuration parameters in admin interface

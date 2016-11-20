@@ -47,9 +47,6 @@ Boston, MA  02110-1301, USA.
 // use 80M ADC clk on HF1, generate async CPU/GPS clock from GPS TCXO
 	#define	ADC_CLOCK_80M_ASYNC	(80.0*MHz)			// 12.500 ns
 
-#define	ADC_MAX		0x1fff		// +8K
-#define	ADC_MIN		0x2000		// -8K
-
 // The hardware returns RXO_BITS (typically 24-bits) and scaling down by RXOUT_SCALE
 // will convert this to a +/- 1.0 float.
 // But the CuteSDR code assumes a scaling of +/- 32.0k, so we scale up by CUTESDR_SCALE.
@@ -57,10 +54,6 @@ Boston, MA  02110-1301, USA.
 #define	CUTESDR_SCALE	15			// +/- 1.0 -> +/- 32.0k (s16 equivalent)
 #define CUTESDR_MAX_VAL ((float) ((1 << CUTESDR_SCALE) - 1))
 #define CUTESDR_MAX_PWR (CUTESDR_MAX_VAL * CUTESDR_MAX_VAL)
-
-// S-Meter calibration offset added to make reading absolute dBm
-// Measured against 8642A as source on 11-Oct-14
-#define SMETER_CALIBRATION -12	
 
 // Use odd values so periodic signals like radars running at even-Hz rates don't
 // beat against update rate and produce artifacts or blanking.
@@ -79,7 +72,7 @@ extern int p0, p1, p2, wf_sim, wf_real, wf_time, ev_dump, wf_flip, wf_exit, wf_s
 	rx_yield, gps_chans, spi_clkg, spi_speed, wf_max, rx_num, wf_num, do_slice, do_gps, do_sdr, wf_olap,
 	spi_delay, do_fft, noisePwr, unwrap, rev_iq, ineg, qneg, fft_file, fftsize, fftuse, bg, alt_port,
 	color_map, port, print_stats, ecpu_cmds, ecpu_tcmds, serial_number, register_on_kiwisdr_dot_com,
-	use_spidev, inactivity_timeout_mins;
+	use_spidev, inactivity_timeout_mins, S_meter_cal, waterfall_cal;
 extern float g_genfreq, g_genampl, g_mixfreq;
 extern double adc_clock_nom, adc_clock, adc_clock_offset, ui_srate;
 extern double DC_offset_I, DC_offset_Q;

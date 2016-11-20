@@ -274,6 +274,13 @@ void kiwi_chrrep(char *str, const char from, const char to)
 	}
 }
 
+void kiwi_copy_terminate_free(char *src, char *dst, int size)
+{
+	strncpy(dst, src, size);
+	dst[size-1] = '\0';
+	free(src);
+}
+
 // used by qsort
 // NB: assumes first element in struct is float sort field
 int qsort_floatcomp(const void *elem1, const void *elem2)
@@ -296,6 +303,7 @@ void ctrl_clr_set(u2_t clr, u2_t set)
 {
 	if (clr) spi_set_noduplex(CmdCtrlClr, clr);
 	if (set) spi_set_noduplex(CmdCtrlSet, set);
+	//printf("ctrl_clr_set(0x%04x, 0x%04x) ctrl_get=0x%04x\n", clr, set, ctrl_get());
 }
 
 u2_t getmem(u2_t addr)
@@ -530,24 +538,101 @@ float ecpu_use()
 	return ((float) gated / (float) free_run * 100);
 }
 
+struct print_max_min_int_t {
+	int min_i, max_i;
+	double min_f, max_f;
+	int min_idx, max_idx;
+};
+
+static print_max_min_int_t *print_max_min_init(void **state)
+{
+	print_max_min_int_t **pp = (print_max_min_int_t **) state;
+	if (*pp == NULL) {
+		*pp = (print_max_min_int_t *) malloc(sizeof(print_max_min_int_t));
+		print_max_min_int_t *p = *pp;
+		memset(p, 0, sizeof(*p));
+		p->min_i = 0x7fffffff; p->max_i = 0x80000000;
+		p->min_f = 1e38; p->max_f = -1e38;
+		p->min_idx = p->max_idx = -1;
+	}
+	return *pp;
+}
+
+void print_max_min_stream_i(void **state, const char *name, int index, int nargs, ...)
+{
+	va_list ap;
+	va_start(ap, nargs);
+	print_max_min_int_t *p = print_max_min_init(state);
+	bool update = false;
+
+	for (int i=0; i < nargs; i++) {
+		int arg_i = va_arg(ap, int);
+		if (arg_i > p->max_i) {
+			p->max_i = arg_i;
+			p->max_idx = index;
+			update = true;
+		}
+		if (arg_i < p->min_i) {
+			p->min_i = arg_i;
+			p->min_idx = index;
+			update = true;
+		}
+	}
+	
+	if (update)
+		printf("min/max %s: %d(%d)..%d(%d)\n", name, p->min_i, p->min_idx, p->max_i, p->max_idx);
+
+	va_end(ap);
+}
+
+void print_max_min_stream_f(void **state, const char *name, int index, int nargs, ...)
+{
+	va_list ap;
+	va_start(ap, nargs);
+	print_max_min_int_t *p = print_max_min_init(state);
+	bool update = false;
+
+	for (int i=0; i < nargs; i++) {
+		double arg_f = va_arg(ap, double);
+		if (arg_f > p->max_f) {
+			p->max_f = arg_f;
+			p->max_idx = index;
+			update = true;
+		}
+		if (arg_f < p->min_f) {
+			p->min_f = arg_f;
+			p->min_idx = index;
+			update = true;
+		}
+	}
+	
+	if (update)
+		//printf("min/max %s: %e(%d)..%e(%d)\n", name, p->min_f, p->min_idx, p->max_f, p->max_idx);
+		printf("min/max %s: %f(%d)..%f(%d)\n", name, p->min_f, p->min_idx, p->max_f, p->max_idx);
+
+	va_end(ap);
+}
+
 void print_max_min_f(const char *name, float *data, int len)
 {
 	int i;
-	float max = 1e-38, min = 1e38;
+	float max = -1e38, min = 1e38;
+	int max_idx, min_idx;
 	
 	for (i=0; i < len; i++) {
 		float s = data[i];
-		if (s > max) max = s;
-		if (s < min) min = s;
+		if (s > max) { max = s; max_idx = i; }
+		if (s < min) { min = s; min_idx = i; }
 	}
 	
-	printf("min/max %s: %.0f..%.0f\n", name, min, max);
+	//printf("min/max %s: %e(%d)..%e(%d)\n", name, min, min_idx, max, max_idx);
+	printf("min/max %s: %f(%d)..%f(%d)\n", name, min, min_idx, max, max_idx);
 }
 
 void print_max_min_c(const char *name, TYPECPX *data, int len)
 {
 	int i;
-	float max = 1e-38, min = 1e38;
+	float max = -1e38, min = 1e38;
 	
 	for (i=0; i < len; i++) {
 		float s;
@@ -559,5 +644,5 @@ void print_max_min_c(const char *name, TYPECPX *data, int len)
 		if (s < min) min = s;
 	}
 	
-	printf("min/max %s: %.0f..%.0f\n", name, min, max);
+	printf("min/max %s: %e..%e\n", name, min, max);
 }
