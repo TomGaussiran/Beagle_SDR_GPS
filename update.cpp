@@ -65,6 +65,7 @@ static void update_task(void *param)
    using namespace std;
    string repo(REPO);
    string repo_name(REPO_NAME);
+   string branch(BRANCH);
         
    if (repo.find("https://github.com/") != 0) {
       lprintf("UPDATE: Upstream (%s) must be at github to continue with update\n", repo.substr(0,19).c_str());
@@ -83,7 +84,7 @@ static void update_task(void *param)
    string mfn = repo_dir + "/Makefile.1";
         
    string cmd = "wget -q --no-check-certificate https://raw.githubusercontent.com/" +
-      repo.substr(19) + "/master/Makefile -O " + mfn;
+      repo.substr(19) + "/" + branch + "/Makefile -O " + mfn;
    lprintf("UPDATE: %s\n", cmd.c_str());
    status = system(cmd.c_str());
   
