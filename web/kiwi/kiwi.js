@@ -2,9 +2,10 @@
 //
 // Copyright (c) 2014 John Seamons, ZL/KF6VO
 
-var SMETER_CALIBRATION_DEFAULT = -12;
-var S_meter_cal = SMETER_CALIBRATION_DEFAULT;
-var waterfall_cal = SMETER_CALIBRATION_DEFAULT;
+// Now -18 instead of -12 because of fix to signed multiplies in IQ mixers resulting in
+// shift left one bit (+6 dB)
+var WATERFALL_CALIBRATION_DEFAULT = -10;
+var SMETER_CALIBRATION_DEFAULT = -13;
 
 var try_again="";
 var conn_type;
@@ -116,7 +117,7 @@ function cfg_save_json(ws)
 }
 
 var version_maj = -1, version_min = -1;
-var tflags = { INACTIVITY:1 };
+var tflags = { INACTIVITY:1, WF_SM_CAL:2, WF_SM_CAL2:4 };
 
 function kiwi_msg(param, ws)
 {
@@ -227,24 +228,20 @@ function kiwi_msg(param, ws)
 				update_cfg = true;
 			}
 
-			S_meter_cal = ext_get_cfg_param('S_meter_cal');
-			if (S_meter_cal == null || S_meter_cal == undefined) {
-				S_meter_cal = SMETER_CALIBRATION_DEFAULT;
-				ext_set_cfg_param('S_meter_cal', S_meter_cal);
+			// XXX TRANSITIONAL
+			if ((transition_flags & tflags.WF_SM_CAL2) == 0) {
+				ext_set_cfg_param('waterfall_cal', WATERFALL_CALIBRATION_DEFAULT);
+				ext_set_cfg_param('S_meter_cal', SMETER_CALIBRATION_DEFAULT);
+				console.log("** forcing S-meter and waterfall cal to CALIBRATION_DEFAULT");
+				transition_flags |= tflags.WF_SM_CAL2;
+				update_flags = true;
 				update_cfg = true;
 			}
-
-			waterfall_cal = ext_get_cfg_param('waterfall_cal');
-			if (waterfall_cal == null || waterfall_cal == undefined) {
-				waterfall_cal = SMETER_CALIBRATION_DEFAULT;
-				ext_set_cfg_param('waterfall_cal', waterfall_cal);
-				update_cfg = true;
-			}
-
+	
 			// XXX TRANSITIONAL
 			if ((transition_flags & tflags.INACTIVITY) == 0) {
 				if (ext_get_cfg_param('inactivity_timeout_mins') == 30) {
-					console.log("** resetting old 30 minutes default inactivity timeout\n");
+					console.log("** resetting old 30 minutes default inactivity timeout");
 					ext_set_cfg_param('inactivity_timeout_mins', 0);
 				}
 				transition_flags |= tflags.INACTIVITY;
