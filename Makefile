@@ -437,6 +437,10 @@ git:
 	git checkout .
 	git pull -v
 
+update_check:
+	wget --no-check-certificate https://raw.githubusercontent.com/jks-prv/Beagle_SDR_GPS/master/Makefile -O Makefile.1
+	diff Makefile Makefile.1
+
 DIST = kiwi
 # Use the git upstream of the current directory to determine the git repo & name
 REPO = $(shell git config --get remote.origin.url)
