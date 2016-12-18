@@ -156,7 +156,7 @@ void check_for_update(int force_check)
 		return;
 	}
 
-	if (!force_check && cfg_bool("update_check", NULL, CFG_REQUIRED) == false)
+	if (!force_check && admcfg_bool("update_check", NULL, CFG_REQUIRED) == false)
 		return;
 	
 	if (force_check)

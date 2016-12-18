@@ -21,6 +21,7 @@ Boston, MA  02110-1301, USA.
 #include "config.h"
 #include "kiwi.h"
 #include "misc.h"
+#include "str.h"
 #include "peri.h"
 #include "spi.h"
 #include "coroutines.h"
@@ -150,7 +151,7 @@ int eeprom_check()
 		return -1;
 	}
 	
-	char serial_no[sizeof(e->serial_no)+1];
+	char serial_no[sizeof(e->serial_no) + SPACE_FOR_NULL];
 	GET_CHARS(e->serial_no, serial_no);
 	int serno = -1;
 	n = sscanf(serial_no, "%d", &serno);
@@ -171,17 +172,18 @@ void eeprom_write()
 	
 	eeprom_t *e = &eeprom;
 	
+	memset(e, 0, sizeof(eeprom_t));		// v1.1 fix: zero unused e->io_pins
 	e->header = FLIP32(EE_HEADER);
 	SET_CHARS(e->fmt_rev, EE_FMT_REV, ' ');
 	
 	SET_CHARS(e->board_name, "KiwiSDR", ' ');
-	SET_CHARS(e->version, "v0.5", ' ');		// fixme
-	SET_CHARS(e->mfg, "Seed.cc", ' ');
-	SET_CHARS(e->part_no, "(fixme part_no)", ' ');
+	SET_CHARS(e->version, "v1.1", ' ');
+	SET_CHARS(e->mfg, "Seeed.cc", ' ');
+	SET_CHARS(e->part_no, "KIWISDR10", ' ');
 
-	SET_CHARS(e->week, "WW", ' ');
-	SET_CHARS(e->year, "YY", ' ');
-	SET_CHARS(e->assembly, "&&&&", ' ');
+	SET_CHARS(e->week, "WW", ' ');		// FIXME
+	SET_CHARS(e->year, "YY", ' ');		// FIXME
+	SET_CHARS(e->assembly, "&&&&", ' ');		// FIXME
 	sprintf(e->serial_no, "%4d", next_serno);	// caution: leaves '\0' at start of next field (n_pins)
 	
 	e->n_pins = FLIP16(2*26);

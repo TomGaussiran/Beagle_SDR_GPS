@@ -25,6 +25,10 @@
 
 	Notes about HTML/DOM:
 	
+	"Typically, the styles are merged, but when conflicts arise, the later declared style will generally win
+	(unless the !important attribute is specified on one of the styles, in which casethat wins).
+	Also, styles applied directly to an HTML element take precedence over CSS class styles."
+	
 	window.
 		inner{Width,Height}		does not include tool/scroll bars
 		outer{Width,Height}		includes tool/scroll bars
@@ -35,13 +39,11 @@
 	
 	
 	FIXME CLEANUPS:
-	convert getVarFromString() to w3_call()
 	uniform instantiation callbacks
 	uniform default/init control values
 	preface internal routines/vars with w3int_...
 	move some routines (esp HTML) out of kiwi_util.js into here?
 	make all 'id-', 'cl-' use uniform
-	uses of admin_num_cb/admin_string_cb in exts
 
 */
 
@@ -80,12 +82,37 @@ function w3_call(func, arg0, arg1, arg2)
 // HTML
 ////////////////////////////////
 
-// allow an element or element-id to be used
+// return document element reference either by id or name
+function w3int_w3_el_id(id_name_class)
+{
+	var el = document.getElementById(id_name_class);
+	if (el == null) {
+		el = document.getElementsByName(id_name_class);		// 'name=' is deprecated
+		if (el != null) el = el[0];	// use first from array
+	}
+	if (el == null) {
+		el = document.getElementsByClassName(id_name_class);
+		if (el != null) el = el[0];	// use first from array
+	}
+	return el;
+}
+
+// allow an element-obj or element-id to be used
+// try id without, then with, leading 'id-'; then including cfg prefix as a last resort
 function w3_el_id(el_id)
 {
 	if (typeof el_id == "string") {
-		var el = html_id(el_id);
-		el = (el == null)? html_idname(el_id) : el;
+		var el = w3int_w3_el_id(el_id);
+		if (el == null) {
+			el = w3int_w3_el_id('id-'+ el_id);
+			if (el == null) {
+				el_id = w3_add_toplevel(el_id);
+				el = w3int_w3_el_id(el_id);
+				if (el == null) {
+					el = w3int_w3_el_id('id-'+ el_id);
+				}
+			}
+		}
 		return el;
 	}
 	return (el_id);
@@ -242,12 +269,12 @@ var w3_flag_color = 'w3-override-yellow';
 
 function w3_flag(path)
 {
-	w3_class(html_idname(path), w3_flag_color);
+	w3_class(w3_el_id(path), w3_flag_color);
 }
 
 function w3_unflag(path)
 {
-	w3_unclass(html_idname(path), w3_flag_color);
+	w3_unclass(w3_el_id(path), w3_flag_color);
 }
 
 function w3_color(el_id, color)
@@ -275,20 +302,35 @@ function w3_check_restart_reboot(el)
 
 function w3_set_value(path, val)
 {
-	var el = html_idname(path);
+	var el = w3_el_id(path);
 	el.value = val;
 }
 
 function w3_set_decoded_value(path, val)
 {
-	var el = html_idname(path);
+	//console.log('w3_set_decoded_value: path='+ path +' val='+ val);
+	var el = w3_el_id(path);
 	el.value = decodeURIComponent(val);
 }
 
 function w3_get_value(path)
 {
-	var el = html_idname(path);
+	var el = w3_el_id(path);
 	return el.value;
+}
+
+function w3_add_toplevel(path)
+{
+	if (!path.startsWith('cfg.') && !path.startsWith('adm.'))
+		return 'cfg.'+ path;
+	return path;
+}
+
+function w3_not_toplevel(path)
+{
+	if (path.startsWith('cfg.') || path.startsWith('adm.'))
+		return path.substr(path.indexOf('.') + 1);
+	return path;
 }
 
 function w3_basename(path)
@@ -307,7 +349,7 @@ function w3_basename(path)
 
 function w3_toggle(id)
 {
-	var el = html_idname(id);
+	var el = w3_el_id(id);
 	if (w3_isClass(el, 'w3-show-block')) {
 		w3_unclass(el, 'w3-show-block');
 		//console.log('w3_toggle: hiding '+ id);
@@ -319,28 +361,30 @@ function w3_toggle(id)
 
 function w3int_click_show(grp, next_id, focus_blur)
 {
-	//console.log('w3int_click_show: '+ next_id);
-	var cur_id = null;
+	var next_id_nav = 'id-nav-'+ next_id;		// to differentiate the nav anchor from the nav container
+	var cur_name, cur_id = null;
 	var next_el = null;
 
-	w3_iterate_classname('grp-'+ grp, function(el, i) {
-		//console.log('w3int_click_show: consider '+ el.id +' '+ el.className);
+	w3_iterate_classname('id-nav-grp-'+ grp, function(el, i) {
+		//console.log('w3int_click_show consider: id='+ el.id +' cn='+ el.className +' el='+ el);
 		if (w3_isClass(el, 'w3-current')) {
-			cur_id = el.id;
+			cur_name = el.id.substring(7);		// remove 'id-nav-' added by w3_anchor(), replace with 'id-'
+			cur_id = 'id-'+ cur_name;
 			w3_unclass(el, 'w3-current');
-			//console.log('w3int_click_show: *current*');
 		}
-		if (el.id == next_id)
+		if (el.id == next_id_nav) {
 			next_el = el;
+		}
 	});
 
 	if (cur_id) {
 		w3_toggle(cur_id);
-		if (focus_blur) w3_call(cur_id +'_blur', cur_id);
+		if (focus_blur) w3_call(cur_name +'_blur', cur_name);
 	}
 
-	if (next_el)
+	if (next_el) {
 		w3_class(next_el, 'w3-current');
+	}
 
 	w3_toggle(next_id);
 	if (focus_blur) w3_call(next_id +'_focus', next_id);
@@ -350,7 +394,9 @@ function w3_anchor(grp, id, text, _class, isSelected, focus_blur)
 {
 	if (isSelected == true) _class += ' w3-current';
 	var oc = 'onclick="w3int_click_show('+ q(grp) +','+ q(id) +','+ focus_blur +')"';
-	var s = '<a id="'+ id +'" class="grp-'+ grp +' '+ _class +'" href="javascript:void(0)" '+ oc +'>'+ text +'</a> ';
+	
+	// store id prefixed with 'id-nav-' so as not to collide with content container id prefixed with 'id-'
+	var s = '<a id="id-nav-'+ id +'" class="id-nav-grp-'+ grp +' '+ _class +'" href="javascript:void(0)" '+ oc +'>'+ text +'</a> ';
 	//console.log('w3_anchor: '+ s);
 	return s;
 }
@@ -367,7 +413,7 @@ function w3_navdef(grp, id, text, _class)
 	// must wait until instantiated before manipulating 
 	setTimeout(function() {
 		w3_toggle(id);
-		var el = html_idname(id);
+		var el = w3_el_id(id);
 	}, w3_highlight_time);
 	
 	return w3_nav(grp, id, text, _class, true);
@@ -387,7 +433,7 @@ function w3_label(label, path, label_ext)
 
 function w3_set_label(label, path)
 {
-	html_idname(path +'-label').innerHTML = '<b>'+ label +'</b>';
+	w3_el_id(path +'-label').innerHTML = '<b>'+ label +'</b>';
 }
 
 
@@ -413,17 +459,16 @@ function w3int_radio_click(ev, path, save_cb)
 		if (w3_isHighlighted(el))
 			idx = i;
 	});
-//jks
-console.log('radio_click '+ path +' idx='+ idx);
+
 	w3_check_restart_reboot(ev.currentTarget);
 
 	// save_cb is a string because can't pass an object to onclick
 	if (save_cb) {
-		getVarFromString(save_cb)(path, idx, /* first */ false);
+		w3_call(save_cb, path, idx, /* first */ false);
 	}
 }
 
-function w3_radio_btn(text, path, isSelected, save_cb)
+function w3_radio_btn(text, path, isSelected, save_cb, prop)
 {
 	var prop = (arguments.length > 4)? arguments[4] : null;
 	var _class = ' cl-'+ path + (isSelected? (' '+ w3_highlight_color) : '') + (prop? (' '+prop) : '');
@@ -433,16 +478,22 @@ function w3_radio_btn(text, path, isSelected, save_cb)
 	return s;
 }
 
+// used when current value should come from config param
+function w3_radio_btn_get_param(text, path, selected_if_val, init_val, save_cb)
+{
+	//console.log('w3_radio_btn_get_param: '+ path);
+	var cur_val = ext_get_cfg_param(path, (init_val == undefined)? null : init_val);
+	
+	// set default selection of button based on current value
+	var isSelected = (cur_val == selected_if_val)? w3_SELECTED : w3_NOT_SELECTED;
+	return w3_radio_btn(text, path, isSelected, save_cb);
+}
+
 var w3int_btn_grp_uniq = 0;
 
-function w3_btn(text, save_cb)
+function w3_btn(text, save_cb, prop)
 {
-	var s;
-	var prop = (arguments.length > 2)? arguments[2] : null;
-	if (prop)
-		s = w3_radio_btn(text, 'w3-btn-grp-'+ w3int_btn_grp_uniq.toString(), 0, save_cb, prop);
-	else
-		s = w3_radio_btn(text, 'w3-btn-grp-'+ w3int_btn_grp_uniq.toString(), 0, save_cb);
+	var s = w3_radio_btn(text, 'id-btn-grp-'+ w3int_btn_grp_uniq.toString(), 0, save_cb, prop);
 	w3int_btn_grp_uniq++;
 	//console.log(s);
 	return s;
@@ -455,7 +506,7 @@ function w3_btn(text, save_cb)
 
 function w3_input_change(path, save_cb)
 {
-	var el = html_idname(path);
+	var el = w3_el_id(path);
 	w3_check_restart_reboot(el);
 	
 	// save_cb is a string because can't pass an object to onclick
@@ -465,7 +516,7 @@ function w3_input_change(path, save_cb)
 		setTimeout(function() {
 			w3_unhighlight(el);
 		}, w3_highlight_time);
-		getVarFromString(save_cb)(path, el.value, /* first */ false);
+		w3_call(save_cb, path, el.value, /* first */ false);
 	}
 }
 
@@ -488,6 +539,15 @@ function w3_input(label, path, val, save_cb, placeholder, prop, label_ext)
 	return s;
 }
 
+// used when current value should come from config param
+function w3_input_get_param(label, path, save_cb, init_val, placeholder, prop, label_ext)
+{
+	var cur_val = ext_get_cfg_param(path, (init_val == undefined)? null : init_val);
+	cur_val = decodeURIComponent(cur_val);
+	//console.log('w3_input_param: path='+ path +' cur_val="'+ cur_val +'" placeholder="'+ placeholder +'"');
+	return w3_input(label, path, cur_val, save_cb, placeholder, prop, label_ext);
+}
+
 
 ////////////////////////////////
 // select
@@ -500,31 +560,35 @@ function w3_select_change(ev, path, save_cb)
 
 	// save_cb is a string because can't pass an object to onclick
 	if (save_cb) {
-		getVarFromString(save_cb)(path, el.value, /* first */ false);
+		w3_call(save_cb, path, el.value, /* first */ false);
 	}
 }
 
 function w3_select(label, title, path, sel, opts, save_cb, label_ext)
 {
 	var label_s = w3_label(label, path, label_ext);
-	var first = '', offset = 0;
+	var first = '';
+
 	if (title != '') {
-		first = '<option value="0" '+ ((sel == 0)? 'selected':'') +' disabled>' + title +'</option>';
-		offset = 1;
+		first = '<option value="-1" '+ ((sel == -1)? 'selected':'') +' disabled>' + title +'</option>';
+	} else {
+		if (sel == -1) sel = 0;
 	}
+	
+	var spacing = (label_s != '')? ' class="w3-margin-T-8"' : '';
 	
 	var s =
 		label_s +
-		'<select id="id-'+ path +'" onchange="w3_select_change(event, '+ q(path) +', '+ q(save_cb) +')">' +
+		'<select id="id-'+ path +'"'+ spacing +' onchange="w3_select_change(event, '+ q(path) +', '+ q(save_cb) +')">' +
 		first;
 		var keys = Object.keys(opts);
 		for (var i=0; i < keys.length; i++) {
-			s += '<option value="'+ (i+offset) +'" '+ ((i+offset == sel)? 'selected':'') +'>'+ opts[keys[i]] +'</option>';
+			s += '<option value="'+ i +'" '+ ((i == sel)? 'selected':'') +'>'+ opts[keys[i]] +'</option>';
 		}
 	s += '</select>';
 
 	// run the callback after instantiation with the initial control value
-	if (save_cb)
+	if (save_cb && sel != -1)
 		setTimeout(function() {
 			//console.log('w3_select: initial callback: '+ save_cb +'('+ q(path) +', '+ sel +')');
 			w3_call(save_cb, path, sel, /* first */ true);
@@ -541,7 +605,7 @@ function w3_select_enum(path, func)
 
 function w3_select_value(path, idx)
 {
-	html_idname(path).value = idx;
+	w3_el_id(path).value = idx;
 }
 
 
@@ -556,7 +620,7 @@ function w3_slider_change(ev, complete, path, save_cb)
 	
 	// save_cb is a string because can't pass an object to onclick
 	if (save_cb) {
-		getVarFromString(save_cb)(path, el.value, complete);
+		w3_call(save_cb, path, el.value, complete);
 	}
 }
 
@@ -585,18 +649,37 @@ function w3_slider(label, path, val, min, max, step, save_cb, placeholder, label
 // standard callbacks
 ////////////////////////////////
 
-function w3_num_cb(el, val)
+function w3_num_cb(path, val)
 {
 	var v = parseFloat(val);
 	if (isNaN(v)) v = 0;
-	//console.log('w3_num_cb: el='+ el +' val='+ val +' v='+ v);
-	setVarFromString(el, v);
+	//console.log('w3_num_cb: path='+ path +' val='+ val +' v='+ v);
+	setVarFromString(path, val);
 }
 
-function w3_string_cb(el, val)
+function w3_string_cb(path, val)
 {
-	//console.log('w3_string_cb: el='+ el +' val='+ val);
-	setVarFromString(el, val.toString());
+	//console.log('w3_string_cb: path='+ path +' val='+ val);
+	setVarFromString(path, val.toString());
+}
+
+function w3_num_set_cfg_cb(path, val, first)
+{
+	var v = parseFloat(val);
+	if (isNaN(v)) v = 0;
+	
+	// if first time don't save, otherwise always save
+	var save = (first != undefined)? (first? false : true) : true;
+	ext_set_cfg_param(path, v, save);
+}
+
+function w3_string_set_cfg_cb(path, val, first)
+{
+	//console.log('w3_string_set_cfg_cb: path='+ path +' '+ typeof val +' "'+ val +'" first='+ first);
+	
+	// if first time don't save, otherwise always save
+	var save = (first != undefined)? (first? false : true) : true;
+	ext_set_cfg_param(path, encodeURIComponent(val.toString()), save);
 }
 
 
@@ -604,11 +687,12 @@ function w3_string_cb(el, val)
 // containers
 ////////////////////////////////
 
-function w3_inline(prop)
+function w3_inline(prop, attr)
 {
+	attr = (attr == undefined)? '' : (' '+ attr);
+	var s = '<div class="w3-show-inline-block '+ prop +'"'+ attr +'>';
 	var narg = arguments.length;
-	var s = '<div class="w3-show-inline-block '+ prop +'">';
-		for (var i=1; i < narg; i++) {
+		for (var i=2; i < narg; i++) {
 			s += arguments[i];
 		}
 	s += '</div>';
@@ -624,6 +708,18 @@ function w3_divs(prop_outer, prop_inner)
 			s += '<div class="'+ prop_inner +'">'+ arguments[i] + '</div>';
 		}
 	s += '</div>';
+	//console.log(s);
+	return s;
+}
+
+function w3_code(prop_outer, prop_inner)
+{
+	var narg = arguments.length;
+	var s = '<pre class="'+ prop_outer +'"><code>';
+		for (var i=2; i < narg; i++) {
+			s += '<div class="'+ prop_inner +'">'+ arguments[i] + '</div>';
+		}
+	s += '</code></pre>';
 	//console.log(s);
 	return s;
 }

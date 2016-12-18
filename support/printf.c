@@ -2,11 +2,13 @@
 #include "config.h"
 #include "kiwi.h"
 #include "misc.h"
+#include "str.h"
 #include "web.h"
 #include "spi.h"
 #include "coroutines.h"
 #include "debug.h"
 #include "printf.h"
+#include "ext_int.h"
 
 #include <sys/file.h>
 #include <fcntl.h>
@@ -63,13 +65,24 @@ void _sys_panic(const char *str, const char *file, int line)
 	xit(-1);
 }
 
+// NB: when debugging use real_printf() to avoid loops!
+void real_printf(const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	vprintf(fmt, ap);
+	va_end(ap);
+}
+
 static bool appending;
 static char *buf, *last_s, *start_s;
 static int brem;
+int log_save_idx, log_save_not_shown;
+char *log_save_arr[N_LOG_SAVE];
 
 static void ll_printf(u4_t type, conn_t *c, const char *fmt, va_list ap)
 {
-	int i, sl;
+	int i, n, sl;
 	char *s, *cp;
 	#define VBUF 1024
 	
@@ -146,8 +159,12 @@ static void ll_printf(u4_t type, conn_t *c, const char *fmt, va_list ap)
 		
 		// show rx channel number if message is associated with a particular rx channel
 		if (c != NULL) {
-			for (i=0; i < RX_CHANS; i++)
-				*s++ = (i == c->rx_channel)? '0'+i : ' ';
+			if (c->type == STREAM_WATERFALL || c->type == STREAM_SOUND || c->type == STREAM_EXT) {
+				for (i=0; i < RX_CHANS; i++)
+					*s++ = (i == c->rx_channel)? '0'+i : ' ';
+			} else {
+				n = sprintf(s, "[%02d]", c->self_idx); s += n;
+			}
 		} else {
 			for (i=0; i < RX_CHANS; i++) *s++ = ' ';
 		}
@@ -169,14 +186,36 @@ static void ll_printf(u4_t type, conn_t *c, const char *fmt, va_list ap)
 		#define printf ALT_PRINTF
 
 		evPrintf(EC_EVENT, EV_PRINTF, -1, "printf", buf);
+
+		if (!background_mode ||
+			((type & PRINTF_LOG) && (background_mode || log_foreground_mode)) ||
+			log_ordinary_printfs) {
+			if (log_save_idx < N_LOG_SAVE) {
+				asprintf(&log_save_arr[log_save_idx], "%s %s %s", tb, up_chan_stat, buf);
+				log_save_idx++;
+			} else {
+				free(log_save_arr[N_LOG_SAVE/2]);
+				log_save_not_shown++;
+				for (i = N_LOG_SAVE/2 + 1; i < N_LOG_SAVE; i++) {
+					log_save_arr[i-1] = log_save_arr[i];
+				}
+				asprintf(&log_save_arr[N_LOG_SAVE-1], "%s %s %s", tb, up_chan_stat, buf);
+			}
+		}
 	}
 	
-	// attempt to also record message remotely
-	if ((type & PRINTF_MSG) && msgs_mc) {
-		if (type & PRINTF_FF)
-			send_encoded_msg_mc(msgs_mc, "MSG", "status_msg", "\f%s", buf);
-		else
-			send_encoded_msg_mc(msgs_mc, "MSG", "status_msg", "%s", buf);
+	// attempt to selectively record message remotely
+	if (type & PRINTF_MSG) {
+		for (conn_t *c = conns; c < &conns[N_CONNS]; c++) {
+			struct mg_connection *mc;
+			
+			if (!c->valid || c->type != STREAM_MFG || ((mc = c->mc) == NULL))
+				continue;
+			if (type & PRINTF_FF)
+				send_msg_encoded_mc(mc, "MSG", "status_msg_text", "\f%s", buf);
+			else
+				send_msg_encoded_mc(mc, "MSG", "status_msg_text", "%s", buf);
+		}
 	}
 	
 	if (buf) free(buf);
@@ -263,16 +302,14 @@ int esnprintf(char *str, size_t slen, const char *fmt, ...)
 	int rv = vsnprintf(str, slen, fmt, ap);
 	va_end(ap);
 
-	size_t slen2 = strlen(str) * ENCODE_EXPANSION_FACTOR;	// c -> %xx
-	slen2++;	// null terminated
-	char *str2 = (char *) kiwi_malloc("eprintf", slen2);
-	mg_url_encode(str, str2, slen2);
-	slen2 = strlen(str2);
+	char *str2 = str_encode(str);
+	int slen2 = strlen(str2);
 	
 	// Passed sizeof str[slen] is meant to be far larger than current strlen(str)
 	// so there is room to return the larger encoded result.
 	check(slen2 <= slen);
 	strcpy(str, str2);
-	kiwi_free("eprintf", str2);
+	free(str2);
+
 	return slen2;
 }

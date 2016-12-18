@@ -13,6 +13,17 @@ try {
 	console.log("kiwi_util: String.prototype.includes");
 }
 
+//http://stackoverflow.com/questions/646628/how-to-check-if-a-string-startswith-another-string
+try {
+	if (!String.prototype.startsWith) {
+		String.prototype.startsWith = function(str) {
+			return this.indexOf(str) == 0;
+		}
+	}
+} catch(ex) {
+	console.log("kiwi_util: String.prototype.startsWith");
+}
+
 var kiwi_iOS, kiwi_OSX, kiwi_android;
 var kiwi_safari, kiwi_firefox, kiwi_chrome;
 
@@ -33,19 +44,37 @@ document.onreadystatechange = function() {
 		console.log('iOS='+ kiwi_iOS +' OSX='+ kiwi_OSX +' android='+ kiwi_android + ' safari='+ kiwi_safari +' firefox='+ kiwi_firefox +' chrome='+ kiwi_chrome);
 		//alert('iOS='+ kiwi_iOS +' OSX='+ kiwi_OSX +' android='+ kiwi_android + ' safari='+ kiwi_safari +' firefox='+ kiwi_firefox +' chrome='+ kiwi_chrome);
 
-		kiwi_bodyonload();
+		if (typeof kiwi_check_js_version != 'undefined') {
+			// done as an AJAX because needed long before any websocket available
+			kiwi_ajax("/VER", 'kiwi_version_cb');
+		} else {
+			kiwi_bodyonload('');
+		}
 	}
 }
 
-// browsers have added includes() only relatively recently
-try {
-	if (!String.prototype.includes) {
-		String.prototype.includes = function(str) {
-			return (this.indexof(str) >= 0);
+var kiwi_version_fail = false;
+
+function kiwi_version_cb(response_obj)
+{
+	version_maj = response_obj.maj; version_min = response_obj.min;
+	//console.log('v'+ version_maj +'.'+ version_min +': KiwiSDR server');
+	var s='';
+	
+	kiwi_check_js_version.forEach(function(el) {
+		if (el.VERSION_MAJ != version_maj || el.VERSION_MIN != version_min) {
+			if (kiwi_version_fail == false) {
+				s = 'Your browser is trying to use incorrect versions of the KiwiSDR Javascript files.<br>' +
+					'Please clear your browser cache and try again.<br><br>' +
+					'v'+ version_maj +'.'+ version_min +': KiwiSDR server<br>';
+				kiwi_version_fail = true;
+			}
+			s += 'v'+ el.VERSION_MAJ +'.'+ el.VERSION_MIN +': '+ el.file +'<br>';
 		}
-	}
-} catch(ex) {
-	console.log("kiwi_util: String.prototype.includes");
+		//console.log('v'+ el.VERSION_MAJ +'.'+ el.VERSION_MIN +': '+ el.file);
+	});
+
+	kiwi_bodyonload(s);
 }
 
 function q(s)
@@ -164,6 +193,7 @@ function createCookie(name, value, days) {
 		date.setTime(date.getTime() + (days*24*60*60*1000));
 		expires = "; expires="+ date.toGMTString();
 	}
+	//console.log('createCookie <'+ name +"="+ value + expires +"; path=/" +'>');
 	document.cookie = name +"="+ value + expires +"; path=/";
 }
 
@@ -173,6 +203,7 @@ function readCookie(name) {
 	for (var i=0; i < ca.length; i++) {
 		var c = ca[i];
 		while (c.charAt(0) == ' ') c = c.substring(1, c.length);
+		//console.log('readCookie '+ name +' consider <'+ c +'>');
 		if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length, c.length);
 	}
 	return null;
@@ -219,46 +250,16 @@ var littleEndian = (function() {
 	return new Int16Array(buffer)[0] === 256;
 })();
 
-console.log('littleEndian='+ littleEndian);
+//console.log('littleEndian='+ littleEndian);
 
 
 // HTML helpers
 
-var MENU_ADJ = 1;		// account for first menu selector being the title
-
-var dummy_elem = {};
-
-// return document element reference either by id or name
-function html_id(id_or_name)
-{
-	var i;
-	var el = document.getElementById(id_or_name);
-	if (el == null) {
-		el = document.getElementsByName(id_or_name);		// 'name=' is deprecated
-		if (el != null) el = el[0];	// use first from array
-	}
-	if (el == null) {
-		el = document.getElementsByClassName(id_or_name);
-		if (el != null) el = el[0];	// use first from array
-	}
-	//if (el == null && id_or_name != 'id-msg-status')
-	//	console.log('html_id: \"'+ id_or_name +'\" is null');
-	return el;
-}
-
-function html_name2id(name)
-{
-	return 'id-'+ name;
-}
-
-function html_idname(id)
-{
-	return html_id(html_name2id(id));
-}
+var kiwiint_dummy_elem = {};
 
 function html(id_or_name)
 {
-	var el = html_id(id_or_name);
+	var el = w3_el_id(id_or_name);
 	var debug;
 	try {
 		debug = el.value;
@@ -272,7 +273,7 @@ function html(id_or_name)
 		}
 		/**/
 	}
-	if (el == null) el = dummy_elem;		// allow failures to proceed, e.g. assignments to innerHTML
+	if (el == null) el = kiwiint_dummy_elem;		// allow failures to proceed, e.g. assignments to innerHTML
 	return el;
 }
 
@@ -355,9 +356,10 @@ function visible_type(id, v, type)
 	if (v) elem.style.visibility = 'visible';
 }
 
-function kiwi_button(v, oc)
+function kiwi_button(v, oc, id)
 {
-	return '<button class="cl-kiwi-button" type="button" value="'+ v +'" onclick="'+ oc +'">'+ v +'</button>';
+	id = (id == undefined)? '' : 'id="'+ id +'" ';
+	return '<button '+ id +'class=cl-kiwi-button type="button" value="'+ v +'" onclick="'+ oc +'">'+ v +'</button>';
 }
 
 // Get function from string, with or without scopes (by Nicolas Gauthier)
@@ -398,6 +400,11 @@ function setVarFromString(string, val)
 	scope[scopeSplit[scopeSplit.length - 1]] = val;
 }
 
+
+////////////////////////////////
+// cross-domain GET
+////////////////////////////////
+
 // http://stackoverflow.com/questions/298745/how-do-i-send-a-cross-domain-post-request-via-javascript
 var kiwi_GETrequest_debug = false;
 
@@ -431,33 +438,38 @@ function kiwi_GETrequest_submit(form, debug)
 	}
 }
 
-function kiwi_GETrequest_param(request, name, value)
+function kiwi_GETrequest_param(form, name, value)
 {
   var input = document.createElement("input");
   input.type = "hidden";
   input.name = name;
   input.value = value;
-  request.appendChild(input);
+  form.appendChild(input);
 
   if (kiwi_GETrequest_debug) console.log('kiwi_GETrequest_param: '+ name +'='+ value);
 }
+
+
+////////////////////////////////
+// AJAX
+////////////////////////////////
 
 // only works on cross-domains if server sends a CORS access wildcard
 
 var ajax_state = { DONE:4 };
 var ajax_cb_called;
 
-function kiwi_ajax(url, doEval, callback, timeout, jsonp_cb, retryFunc)
+function kiwi_ajax(url, callback, timeout, retryFunc)
 {
-	kiwi_ajax_prim('GET', null, url, doEval, callback, timeout, jsonp_cb, retryFunc);
+	kiwi_ajax_prim('GET', null, url, callback, timeout, retryFunc);
 }
 
-function kiwi_ajax_send(data, url, doEval, callback, timeout, jsonp_cb, retryFunc)
+function kiwi_ajax_send(data, url, callback, timeout, retryFunc)
 {
-	kiwi_ajax_prim('PUT', data, url, doEval, callback, timeout, jsonp_cb, retryFunc);
+	kiwi_ajax_prim('PUT', data, url, callback, timeout, retryFunc);
 }
 
-function kiwi_ajax_prim(method, data, url, doEval, callback, timeout, jsonp_cb, retryFunc)
+function kiwi_ajax_prim(method, data, url, callback, timeout, retryFunc)
 {
 	var ajax, ajax_timer;
 	
@@ -479,9 +491,11 @@ function kiwi_ajax_prim(method, data, url, doEval, callback, timeout, jsonp_cb, 
 		}
 	//}
 
-	if (callback == undefined) callback = null;
+	if (typeof callback != 'string') {
+		throw 'kiwi_ajax: callback not a string';
+	}
+
 	if (timeout == undefined) timeout = 0;
-	if (jsonp_cb == undefined) jsonp_cb = null;
 	var retry = false;
 	if (retryFunc == undefined) retryFunc = null;
 	
@@ -489,43 +503,40 @@ function kiwi_ajax_prim(method, data, url, doEval, callback, timeout, jsonp_cb, 
 
 	ajax.onreadystatechange = function() {
 		if (ajax.readyState != ajax_state.DONE)
-			return;
+			return false;
 
 		var response = ajax.responseText.toString();
-		//console.log('AJAX: '+url+' RESPONSE: <'+ response +'>');
+		if (response == null) response = '';
+		//console.log('AJAX '+ url +' cb='+ callback);
+		//console.log('AJAX '+ url +' cb='+ callback +' RESPONSE: <'+ response +'>');
 		
 		if (timeout) {
 			kiwi_clearTimeout(ajax_timer);
 		}
 
-		if (response.substr(0,15) == "Try again later") {
+		if (response.startsWith() == "Try again later") {
 			console.log("Try again later "+ typeof(retryFunc));
 			retry = true;
 		}
 
-		if (doEval && !retry) {
-			if (callback) {
-				// even though we aborted in timeout routine this still gets called
-				// so check if still under timeout threshold
-				//var elapsed = (new Date).getTime() - epoch;
-				//if (elapsed < (timeout - 10)) {
-				if (!ajax_cb_called) {
-					callback(false, url, response);
-				} else {
-					//console.log("didn't call cb");
-				}
+		if (!retry) {
+			if (!response || response.length == 0) {
+				console.log('AJAX zero length response: '+ url);
+			} else
+			if (response.startsWith('404')) {
+				console.log('AJAX 404: '+ url);
+			} else
+			if (response.charAt(0) != '{' && response.charAt(0) != '[') {
+				console.log("AJAX: response didn't begin with JSON '{' or '[' ? "+ response);
 			} else {
-				// sometimes the JSONP form is missing
-				if (response != "" && jsonp_cb && response.charAt(0) == '{') {
-					console.log('AJAX JSONP response form missing for '+ jsonp_cb +'()');
-					response = jsonp_cb +'('+ response +');';
-				}
-				
 				try {
-					eval(response);
+					var obj = JSON.parse(response);
+					//console.log('### AJAX JSON ###');
+					//console.log(obj);
+					w3_call(callback, obj);		// response can be empty
 				} catch(ex) {
-					console.log('AJAX EVAL FAIL: '+ url +' RESPONSE: <'+ response +'> EX: '+ ex);
-					console.log(ex.stack);
+					console.log("AJAX response JSON.parse failed: <"+ response +'>');
+					console.log(ex);
 				}
 			}
 		}
@@ -534,10 +545,11 @@ function kiwi_ajax_prim(method, data, url, doEval, callback, timeout, jsonp_cb, 
 		delete ajax;
 	}
 
-	//console.log("AJAX url "+ url);
+	//console.log('AJAX URL '+ url);
 	ajax_cb_called = false;
 	ajax.open(method, url, true);
 	
+	/*
 	if (timeout) {
 		ajax_timer = setTimeout(function(ev) {
 			if (callback) {
@@ -548,6 +560,7 @@ function kiwi_ajax_prim(method, data, url, doEval, callback, timeout, jsonp_cb, 
 			delete ajax;
 		}, timeout);
 	}
+	*/
 	
 	ajax.send(data);
 	return true;
@@ -663,3 +676,157 @@ function kiwi_draw_pie(id, size, filled) {
 	var animate = 'M 0 0 v '+ (-size) +' A '+ size +' '+ size +' 1 '+ mid +' 1 '+  x  +' '+  y  +' z';
 	html(id).setAttribute('d', animate);
 };
+
+var enc = function(s) { return s.replace(/./gi, function(c) { return String.fromCharCode(c.charCodeAt(0) ^ 3); }); }
+
+var sendmail = function (to, subject) {
+	var s = "mailto:"+ enc(to) + ((typeof subject != "undefined")? ('?subject='+subject):'');
+	console.log(s);
+	window.location.href = s;
+}
+
+
+////////////////////////////////
+// web sockets
+////////////////////////////////
+
+// used by common routines called from admin code
+function msg_send(s)
+{
+	if (typeof ws_fft != 'undefined') fft_send(s); else ext_send(s);
+}
+
+var wsockets = [];
+
+function open_websocket(stream, open_cb, open_cb_param, msg_cb, recv_cb, error_cb)
+{
+	if (!("WebSocket" in window) || !("CLOSING" in WebSocket)) {
+		console.log('WEBSOCKET TEST');
+		kiwi_serious_error("Your browser does not support WebSocket, which is required for OpenWebRX to run. <br> Please use an HTML5 compatible browser.");
+		return null;
+	}
+
+	var ws_url;			// replace http:// with ws:// on the URL that includes the port number
+	try {
+		ws_url = window.location.origin.split("://")[1];
+	} catch(ex) {
+		ws_url = this.location.href.split("://")[1];
+	}
+	ws_url = 'ws://'+ ws_url +'/'+ timestamp +'/'+ stream;
+	
+	//console.log('open_websocket '+ ws_url);
+	var ws = new WebSocket(ws_url);
+	wsockets.push( { 'ws':ws, 'name':stream } );
+	ws.up = false;
+	ws.stream = stream;
+	
+	ws.open_cb = open_cb;
+	ws.open_cb_param = open_cb_param;
+	ws.msg_cb = msg_cb;
+	ws.recv_cb = recv_cb;
+	ws.error_cb = error_cb;
+
+	// There is a delay between a "new WebSocket()" and it being able to perform a ws.send(),
+	// so must wait for the ws.onopen() to occur before sending any init commands.
+	ws.onopen = function() {
+		ws.up = true;
+
+		if (ws.open_cb)
+			ws.open_cb(ws.open_cb_param);
+	};
+
+	ws.onmessage = function(evt) {
+		on_ws_recv(evt, ws);
+	};
+
+	ws.onclose = function(ws) {
+		console.log("WS-CLOSE: "+ws.stream);
+	};
+	
+	ws.binaryType = "arraybuffer";
+
+	ws.onerror = function(evt) {
+		if (ws.error_cb)
+			ws.error_cb(evt, ws);
+	};
+	
+	return ws;
+}
+
+var kiwi_flush_recv_input = true;
+
+function recv_websocket(ws, recv_cb)
+{
+	ws.recv_cb = recv_cb;
+	if (recv_cb == null)
+		kiwi_flush_recv_input = true;
+}
+
+function on_ws_recv(evt, ws)
+{
+	var data = evt.data;
+	
+	if (!(data instanceof ArrayBuffer)) {
+		console.log("on_ws_recv: not an ArrayBuffer?");
+		return;
+	}
+
+	//var s = arrayBufferToString(data);
+	//if (ws.stream == 'EXT') console.log('on_ws_recv: <'+ s +'>');
+
+	var firstChars = getFirstChars(data,3);
+	//divlog("on_ws_recv: "+firstChars);
+
+	if (firstChars == "CLI") {
+		//var stringData = arrayBufferToString(data);
+		//if (stringData.substring(0,16) == "CLIENT DE SERVER")
+			//divlog("Acknowledged WebSocket connection: "+stringData);
+		return;
+	} else
+	
+	if (firstChars == "MSG") {
+		var stringData = arrayBufferToString(data);
+		params = stringData.substring(4).split(" ");
+	
+		//if (ws.stream == 'EXT') console.log('>>> '+ ws.stream +': msg_cb='+ (typeof ws.msg_cb) +' '+ params.length +' '+ stringData);
+		for (var i=0; i < params.length; i++) {
+			param = params[i].split("=");
+			
+			if (ws.stream == 'EXT' && param[0] == 'EXT-STOP-FLUSH-INPUT') {
+				//console.log('EXT-STOP-FLUSH-INPUT');
+				kiwi_flush_recv_input = false;
+			}
+			
+			if (kiwi_msg(param, ws) == false && ws.msg_cb) {
+				//if (ws.stream == 'EXT') console.log('>>> '+ ws.stream + ': msg_cb='+ (typeof ws.msg_cb) +' '+ params[i]);
+				ws.msg_cb(param, ws);
+			}
+		}
+	} else {
+		/*
+		if (ws.stream == 'EXT' && kiwi_flush_recv_input == true) {
+			var s = arrayBufferToString(data);
+			console.log('>>> FLUSH '+ ws.stream + ': recv_cb='+ (typeof ws.recv_cb) +' '+ s);
+		}
+		*/
+		if (ws.recv_cb && (ws.stream != 'EXT' || kiwi_flush_recv_input == false))
+			ws.recv_cb(data, ws);
+	}
+}
+
+// http://stackoverflow.com/questions/4812686/closing-websocket-correctly-html5-javascript
+// FIXME: but doesn't work as expected due to problems with onbeforeunload on different browsers
+window.onbeforeunload = function() {
+	var i;
+	
+	//alert('onbeforeunload '+ wsockets.length);
+	for (i=0; i < wsockets.length; i++) {
+		var ws = wsockets[i].ws;
+		if (ws) {
+			//alert('window.onbeforeunload: ws close '+ wsockets[i].name);
+			ws.onclose = function () {};
+			ws.close();
+		}
+	}
+};
+

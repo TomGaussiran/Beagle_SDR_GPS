@@ -40,16 +40,23 @@ Boston, MA  02110-1301, USA.
 #include <time.h>
 #include <signal.h>
 
+#define CFG_FN	DIR_CFG "/" CFG_PREFIX "kiwi.json";
+#define ADM_FN	DIR_CFG "/" CFG_PREFIX "admin.json"
+#define DX_FN	DIR_CFG "/" CFG_PREFIX "dx.json";
+
+#define SPACE_FOR_CLOSE_BRACE		1
+#define SLEN_COMMA_2QUOTES_COLON	4
+#define SLEN_COMMA_4QUOTES_COLON	6
+#define JSON_FIRST_QUOTE			1
+#define JSON_SEPARATING_COMMA		1
+
 int serial_number;
-bool reload_kiwi_cfg;
 
 void cfg_reload(bool called_from_main)
 {
 	cfg_init();
+	admcfg_init();
 
-	// yes, race with reload_kiwi_cfg since cfg_reload() is async, but low probability
-	reload_kiwi_cfg = true;
-	
 	if (called_from_main) {
 		if ((serial_number = cfg_int("serial_number", NULL, CFG_OPTIONAL)) > 0) {
 			lprintf("serial number override from configuration: %d\n", serial_number);
@@ -70,112 +77,50 @@ void cfg_reload(bool called_from_main)
 	}
 }
 
-cfg_t cfg_cfg, cfg_dx;
+cfg_t cfg_cfg, cfg_adm, cfg_dx;
 	
-static void cfg_error(config_t *config, const char *msg)
-{
-	lprintf("%s:%d - %s\n", config_error_file(config), config_error_line(config), config_error_text(config));
-	config_destroy(config);
-	panic(msg);
-}
-
 char *_cfg_get_json(cfg_t *cfg, int *size)
 {
-	if (!cfg->use_json)
-		return NULL;
-	if (size) *size = cfg->json_size;
+	if (size) *size = cfg->json_buf_size;
 	return cfg->json;
 }
 
 static int _cfg_load_json(cfg_t *cfg);
+static void cfg_parse_json(cfg_t *cfg);
 
 void _cfg_init(cfg_t *cfg)
 {
-	// special transition to JSON files
 	if (cfg == &cfg_cfg) {
-		cfg->filename_cfg = DIR_CFG "/" CFG_PREFIX "kiwi.cfg";
-		cfg->filename_json = DIR_CFG "/" CFG_PREFIX "kiwi.json";
+		cfg->filename = CFG_FN;
+	} else
+	if (cfg == &cfg_adm) {
+		cfg->filename = ADM_FN;
+	} else
+	if (cfg == &cfg_dx) {
+		cfg->filename = DX_FN;
 	} else {
-		cfg->filename_cfg = DIR_CFG "/" CFG_PREFIX "dx.cfg";
-		cfg->filename_json = DIR_CFG "/" CFG_PREFIX "dx.json";
+		panic("cfg_init cfg");
 	}
 	
 	if (!cfg->init) {
-		struct stat st;
-
-		if (cfg == &cfg_cfg) {
-			// cfg: .cfg before .json
-			if (stat(cfg->filename_cfg, &st) == 0) {
-				cfg->use_json = false;
-				cfg->filename = cfg->filename_cfg;
-			} else {
-				cfg->use_json = true;
-				cfg->filename = cfg->filename_json;
-				if (_cfg_load_json(cfg) == 0)
-					panic("cfg_init json");
-			}
-		} else {
-			// dxcfg: .json before .cfg
-			if (stat(cfg->filename_json, &st) == 0) {
-				cfg->use_json = true;
-				cfg->filename = cfg->filename_json;
-				if (_cfg_load_json(cfg) == 0)
-					panic("cfg_init json");
-			} else {
-				cfg->use_json = false;
-				cfg->filename = cfg->filename_cfg;
-			}
-		}
-	
+		if (_cfg_load_json(cfg) == 0)
+			panic("cfg_init json");
 		cfg->init = true;
 	}
 	
-	lprintf("reading configuration from file %s\n", cfg->filename);
+	lprintf("reading configuration from file %s: %d tokens\n", cfg->filename, cfg->ntok);
 
-	if (cfg->use_json)
-		return;
-
-
-	// libconfig of .cfg files
-	
-	if (cfg->config_init) {
-		config_destroy(&cfg->config);
-	}
-	
-	config_init(&cfg->config);
-
-	if (!config_read_file(&cfg->config, cfg->filename)) {
-		lprintf("check that config file is installed in %s\n", cfg->filename);
-		cfg_error(&cfg->config, cfg->filename);
-	}
-	
-	cfg->root = config_root_setting(&cfg->config);
-	cfg->node = cfg->root;
-	cfg->node_name = "root";
-	cfg->config_init = true;
-}
-
-// change current node, absolute or relative path name
-int _cfg_node(cfg_t *cfg, const char *path, u4_t flags)
-{
-	config_setting_t *node;
-	
-	node = (flags & CFG_ABS)? config_lookup(&cfg->config, path) : config_lookup_from(cfg->node, path);
-	if (!node) return false;
-	cfg->node = node;
-	return true;
-}
-
-static config_setting_t *_cfg_member(cfg_t *cfg, const char *name,  int type)
-{
-	config_setting_t *node = cfg->node, *set;
-	if (!(set = config_setting_get_member(node, name))) {
-		if (!(set = config_setting_add(node, name, type))) {
-			lprintf("could not add member to %s: %s\n", cfg->node_name, name);
-			panic("_cfg_member");
+	if (cfg == &cfg_cfg) {
+		struct stat st;
+		const char *adm_fn = ADM_FN;
+		
+		if (stat(adm_fn, &st) != 0) {
+			system("echo -n \"{}\" >" ADM_FN);
+			admcfg_init();
+			lprintf("#### transitioning to admin.json file ####\n");
+			cfg_adm_transition();
 		}
 	}
-	return set;
 }
 
 jsmntok_t *_cfg_lookup_json(cfg_t *cfg, const char *id)
@@ -187,7 +132,7 @@ jsmntok_t *_cfg_lookup_json(cfg_t *cfg, const char *id)
 	for (i=0; i < cfg->ntok; i++) {
 		int n = jt->end - jt->start;
 		char *s = &cfg->json[jt->start];
-		if (jt->type == JSMN_STRING && jt->size == 1) {
+		if (JSMN_IS_ID(jt)) {
 			//printf("key %d: %d <%.*s> cmp %d\n", i, n, n, s, strncmp(id, s, n));
 			if (n == idlen && strncmp(id, s, n) == 0) {
 				return jt+1;
@@ -210,22 +155,16 @@ bool _cfg_int_json(cfg_t *cfg, jsmntok_t *jt, int *num)
 	}
 }
 
-int _cfg_int(cfg_t *cfg, const char *name, int *val, u4_t flags)
+int _cfg_int(cfg_t *cfg, const char *name, bool *error, u4_t flags)
 {
-	int num;
+	int num = 0;
 	bool err = false;
 
-	if (cfg->use_json) {
-		jsmntok_t *jt = _cfg_lookup_json(cfg, name);
-		if (!jt || _cfg_int_json(cfg, jt, &num) == false) {
-			err = true;
-		}
-	} else {
-		if (!config_lookup_int(&cfg->config, name, &num)) {
-			if (config_error_line(&cfg->config)) cfg_error(&cfg->config, "cfg_int");
-			err = true;
-		}
+	jsmntok_t *jt = _cfg_lookup_json(cfg, name);
+	if (!jt || _cfg_int_json(cfg, jt, &num) == false) {
+		err = true;
 	}
+	if (error) *error = err;
 	if (err) {
 		if (!(flags & CFG_REQUIRED)) return 0;
 		lprintf("%s: required parameter not found: %s\n", cfg->filename, name);
@@ -233,8 +172,55 @@ int _cfg_int(cfg_t *cfg, const char *name, int *val, u4_t flags)
 	}
 	
 	if (flags & CFG_PRINT) lprintf("CFG read %s: %s = %d\n", cfg->filename, name, num);
-	if (val) *val = num;
 	return num;
+}
+
+void _cfg_set_int(cfg_t *cfg, const char *name, int val, u4_t flags)
+{
+	int slen;
+	char *s;
+	jsmntok_t *jt = _cfg_lookup_json(cfg, name);
+
+	if (flags == CFG_REMOVE) {
+		if (!jt) {
+			lprintf("%s: cfg_set_int(CFG_REMOVE) a parameter that doesn't exist: %s\n", cfg->filename, name);
+			panic("cfg_set_int");
+		}
+		
+		jsmntok_t *key_jt = jt-1;
+		assert(JSMN_IS_ID(key_jt));
+		int key_size = key_jt->end - key_jt->start;
+		
+		s = &cfg->json[jt->start];
+		assert(jt->type == JSMN_PRIMITIVE && (isdigit(*s) || *s == '-'));
+		int val_size = jt->end - jt->start;
+		
+		// ,"id":int or {"id":int
+		//   ^start
+		s = &cfg->json[key_jt->start - JSON_FIRST_QUOTE - JSON_SEPARATING_COMMA];
+		slen = key_size + val_size + SLEN_COMMA_2QUOTES_COLON;	// remember (jt->end - jt->start) doesn't include first quote
+		if (*s == '{') s++;		// at the beginning, slen stays the same because need to remove trailing comma
+		//printf("cfg_set_int(CFG_REMOVE): %s %d %d %d <%.*s>\n", name, slen, key_size, val_size, slen, s);
+		strcpy(s, s + slen);
+	} else {
+		if (!jt) {
+			// create by appending to the end of the JSON string
+			char *int_sval;
+			asprintf(&int_sval, "%d", val);
+			slen = strlen(name) + strlen(int_sval) + SLEN_COMMA_2QUOTES_COLON;
+			assert(cfg->json_buf_size);
+			_cfg_realloc_json(cfg, cfg->json_buf_size + slen, CFG_COPY);
+			s = cfg->json + strlen(cfg->json) - SPACE_FOR_CLOSE_BRACE;
+			bool head = (s[-1] == '{');
+			sprintf(s, "%s\"%s\":%s}", head? "":",", name, int_sval);
+			free(int_sval);
+		} else {
+			lprintf("%s: don't support cfg_set_int() update yet: %s\n", cfg->filename, name);
+			panic("cfg_set_int");
+		}
+	}
+	
+	cfg_parse_json(cfg);	// must re-parse
 }
 
 bool _cfg_float_json(cfg_t *cfg, jsmntok_t *jt, double *num)
@@ -249,22 +235,16 @@ bool _cfg_float_json(cfg_t *cfg, jsmntok_t *jt, double *num)
 	}
 }
 
-double _cfg_float(cfg_t *cfg, const char *name, double *val, u4_t flags)
+double _cfg_float(cfg_t *cfg, const char *name, bool *error, u4_t flags)
 {
-	double num;
+	double num = 0;
 	bool err = false;
 
-	if (cfg->use_json) {
-		jsmntok_t *jt = _cfg_lookup_json(cfg, name);
-		if (!jt || _cfg_float_json(cfg, jt, &num) == false) {
-			err = true;
-		}
-	} else {
-		if (!config_lookup_float(&cfg->config, name, &num)) {
-			if (config_error_line(&cfg->config)) cfg_error(&cfg->config, "cfg_float");
-			err = true;
-		}
+	jsmntok_t *jt = _cfg_lookup_json(cfg, name);
+	if (!jt || _cfg_float_json(cfg, jt, &num) == false) {
+		err = true;
 	}
+	if (error) *error = err;
 	if (err) {
 		if (!(flags & CFG_REQUIRED)) return 0;
 		lprintf("%s: required parameter not found: %s\n", cfg->filename, name);
@@ -272,89 +252,157 @@ double _cfg_float(cfg_t *cfg, const char *name, double *val, u4_t flags)
 	}
 	
 	if (flags & CFG_PRINT) lprintf("CFG read %s: %s = %f\n", cfg->filename, name, num);
-	if (val) *val = num;
 	return num;
 }
 
-int _cfg_bool(cfg_t *cfg, const char *name, int *val, u4_t flags)
+void _cfg_set_float(cfg_t *cfg, const char *name, double val, u4_t flags)
 {
-	int num;
-	bool err = false;
+	int slen;
+	char *s;
+	jsmntok_t *jt = _cfg_lookup_json(cfg, name);
 
-	if (cfg->use_json) {
-		jsmntok_t *jt = _cfg_lookup_json(cfg, name);
-		char *s = jt? &cfg->json[jt->start] : NULL;
-		if (!(jt && jt->type == JSMN_PRIMITIVE && (*s == 't' || *s == 'f'))) {
-			err = true;
-		} else {
-			num = (*s == 't')? 1:0;
+	if (flags == CFG_REMOVE) {
+		if (!jt) {
+			lprintf("%s: cfg_set_float(CFG_REMOVE) a parameter that doesn't exist: %s\n", cfg->filename, name);
+			panic("cfg_set_float");
 		}
+		
+		jsmntok_t *key_jt = jt-1;
+		assert(JSMN_IS_ID(key_jt));
+		int key_size = key_jt->end - key_jt->start;
+		
+		s = &cfg->json[jt->start];
+		assert(jt->type == JSMN_PRIMITIVE && (isdigit(*s) || *s == '-' || *s == '.'));
+		int val_size = jt->end - jt->start;
+		
+		// ,"id":float or {"id":float
+		//   ^start
+		s = &cfg->json[key_jt->start - JSON_FIRST_QUOTE - JSON_SEPARATING_COMMA];
+		slen = key_size + val_size + SLEN_COMMA_2QUOTES_COLON;	// remember (jt->end - jt->start) doesn't include first quote
+		if (*s == '{') s++;		// at the beginning, slen stays the same because need to remove trailing comma
+		//printf("cfg_set_float(CFG_REMOVE): %s %d %d %d <%.*s>\n", name, slen, key_size, val_size, slen, s);
+		strcpy(s, s + slen);
 	} else {
-		if (!config_lookup_bool(&cfg->config, name, &num)) {
-			if (config_error_line(&cfg->config)) cfg_error(&cfg->config, "cfg_bool");
-			err = true;
+		if (!jt) {
+			// create by appending to the end of the JSON string
+			char *float_sval;
+			asprintf(&float_sval, "%g", val);
+			slen = strlen(name) + strlen(float_sval) + SLEN_COMMA_2QUOTES_COLON;
+			assert(cfg->json_buf_size);
+			_cfg_realloc_json(cfg, cfg->json_buf_size + slen, CFG_COPY);
+			s = cfg->json + strlen(cfg->json) - SPACE_FOR_CLOSE_BRACE;
+			bool head = (s[-1] == '{');
+			sprintf(s, "%s\"%s\":%s}", head? "":",", name, float_sval);
+			free(float_sval);
+		} else {
+			lprintf("%s: don't support cfg_set_float() update yet: %s\n", cfg->filename, name);
+			panic("cfg_set_float");
 		}
 	}
+	
+	cfg_parse_json(cfg);	// must re-parse
+}
+
+int _cfg_bool(cfg_t *cfg, const char *name, bool *error, u4_t flags)
+{
+	int num = 0;
+	bool err = false;
+
+	jsmntok_t *jt = _cfg_lookup_json(cfg, name);
+	char *s = jt? &cfg->json[jt->start] : NULL;
+	if (!(jt && jt->type == JSMN_PRIMITIVE && (*s == 't' || *s == 'f'))) {
+		err = true;
+	} else {
+		num = (*s == 't')? 1:0;
+	}
+	if (error) *error = err;
 	if (err) {
 		if (!(flags & CFG_REQUIRED)) return NOT_FOUND;
-		
-		// transitional hack -- these are missing in old kiwi.cfg, assume they are true
-		if (cfg == &cfg_cfg && !cfg->use_json && (
-			strcmp(name, "update_check") == 0 ||
-			strcmp(name, "update_install") == 0 ||
-			strcmp(name, "user_auto_login") == 0 ||
-			strcmp(name, "admin_auto_login") == 0
-		)) {
-			num = 1;
-		} else {
-			lprintf("%s: required parameter not found: %s\n", cfg->filename, name);
-			panic("cfg_bool");
-		}
+		lprintf("%s: required parameter not found: %s\n", cfg->filename, name);
+		panic("cfg_bool");
 	}
 
 	num = num? true : false;
 	if (flags & CFG_PRINT) lprintf("CFG read %s: %s = %s\n", cfg->filename, name, num? "true":"false");
-	if (val) *val = num;
 	return num;
 }
 
-bool _cfg_string_json(cfg_t *cfg, jsmntok_t *jt, const char **str)
+void _cfg_set_bool(cfg_t *cfg, const char *name, u4_t val)
+{
+	int slen;
+	char *s;
+	jsmntok_t *jt = _cfg_lookup_json(cfg, name);
+	
+	if (val == CFG_REMOVE) {
+		if (!jt) {
+			lprintf("%s: cfg_set_bool(CFG_REMOVE) a parameter that doesn't exist: %s\n", cfg->filename, name);
+			panic("cfg_set_bool");
+		}
+		
+		jsmntok_t *key_jt = jt-1;
+		assert(JSMN_IS_ID(key_jt));
+		int key_size = key_jt->end - key_jt->start;
+		
+		s = &cfg->json[jt->start];
+		assert(jt->type == JSMN_PRIMITIVE && (*s == 't' || *s == 'f'));
+		int val_size = jt->end - jt->start;
+		
+		// ,"id":t/f or {"id":t/f
+		//   ^start
+		s = &cfg->json[key_jt->start - JSON_FIRST_QUOTE - JSON_SEPARATING_COMMA];
+		slen = key_size + val_size + SLEN_COMMA_2QUOTES_COLON;	// remember (jt->end - jt->start) doesn't include first quote
+		if (*s == '{') s++;		// at the beginning, slen stays the same because need to remove trailing comma
+		//printf("cfg_set_bool(CFG_REMOVE): %s %d %d %d <%.*s>\n", name, slen, key_size, val_size, slen, s);
+		strcpy(s, s + slen);
+	} else {
+		bool bool_val = val? true : false;
+		if (!jt) {
+			// create by appending to the end of the JSON string
+			const char *bool_sval = bool_val? "true" : "false";
+			slen = strlen(name) + strlen(bool_sval) + SLEN_COMMA_2QUOTES_COLON;
+			assert(cfg->json_buf_size);
+			_cfg_realloc_json(cfg, cfg->json_buf_size + slen, CFG_COPY);
+			s = cfg->json + strlen(cfg->json) - SPACE_FOR_CLOSE_BRACE;
+			bool head = (s[-1] == '{');
+			sprintf(s, "%s\"%s\":%s}", head? "":",", name, bool_sval);
+		} else {
+			lprintf("%s: don't support cfg_set_bool() update yet: %s\n", cfg->filename, name);
+			panic("cfg_set_bool");
+		}
+	}
+	
+	cfg_parse_json(cfg);	// must re-parse
+}
+
+bool _cfg_type_json(cfg_t *cfg, jsmntype_t jt_type, jsmntok_t *jt, const char **str)
 {
 	assert(jt != NULL);
 	char *s = &cfg->json[jt->start];
-	if (jt->type == JSMN_STRING) {
+	if (jt->type == jt_type) {
 		int n = jt->end - jt->start;
-		*str = (const char *) malloc(n+1);
-		mg_url_decode((const char *) s, n, (char *) *str, n+1, 0);
+		*str = (const char *) malloc(n + SPACE_FOR_NULL);
+		mg_url_decode((const char *) s, n, (char *) *str, n + SPACE_FOR_NULL, 0);
 		return true;
 	} else {
 		return false;
 	}
 }
 
-void _cfg_string_free(cfg_t *cfg, const char *str)
+void _cfg_free(cfg_t *cfg, const char *str)
 {
-	if (cfg->use_json) {
-		free((char *) str);
-	}
+	if (str != NULL) free((char *) str);
 }
 
-const char *_cfg_string(cfg_t *cfg, const char *name, const char **val, u4_t flags)
+const char *_cfg_string(cfg_t *cfg, const char *name, bool *error, u4_t flags)
 {
-	const char *str;
+	const char *str = NULL;
 	bool err = false;
 
-	if (cfg->use_json) {
-		jsmntok_t *jt = _cfg_lookup_json(cfg, name);
-		if (!jt || _cfg_string_json(cfg, jt, &str) == false) {
-			err = true;
-		}
-	} else {
-		if (!config_lookup_string(&cfg->config, name, &str)) {
-			if (config_error_line(&cfg->config)) cfg_error(&cfg->config, "cfg_string");
-			err = true;
-		}
+	jsmntok_t *jt = _cfg_lookup_json(cfg, name);
+	if (!jt || _cfg_type_json(cfg, JSMN_STRING, jt, &str) == false) {
+		err = true;
 	}
+	if (error) *error = err;
 	if (err) {
 		if (!(flags & CFG_REQUIRED)) return NULL;
 		lprintf("%s: required parameter not found: %s\n", cfg->filename, name);
@@ -362,22 +410,120 @@ const char *_cfg_string(cfg_t *cfg, const char *name, const char **val, u4_t fla
 	}
 
 	if (flags & CFG_PRINT) lprintf("CFG read %s: %s = \"%s\"\n", cfg->filename, name, str);
-	if (val) *val = str;
 	return str;
 }
 
-
-config_setting_t *_cfg_lookup(cfg_t *cfg, const char *path, u4_t flags)
+void _cfg_set_string(cfg_t *cfg, const char *name, const char *val)
 {
-	config_setting_t *setting;
-	if ((setting = config_lookup(&cfg->config, path)) == NULL) {
-		if (config_error_line(&cfg->config)) cfg_error(&cfg->config, "cfg_lookup");
-		if (!(flags & CFG_REQUIRED)) return NULL;
-		lprintf("%s: lookup parameter not found: %s\n", cfg->filename, path);
-		panic("cfg_lookup");
+	int slen;
+	char *s;
+	jsmntok_t *jt = _cfg_lookup_json(cfg, name);
+	
+	if (val == NULL) {
+		if (!jt) {
+			lprintf("%s: cfg_set_string(CFG_REMOVE) a parameter that doesn't exist: %s\n", cfg->filename, name);
+			panic("cfg_set_string");
+		}
+		
+		jsmntok_t *key_jt = jt-1;
+		assert(JSMN_IS_ID(key_jt));
+		int key_size = key_jt->end - key_jt->start;
+		
+		s = &cfg->json[jt->start];
+		assert(jt->type == JSMN_STRING && s[-1] == '\"');
+		int val_size = jt->end - jt->start;
+		
+		// ,"id":"string" or {"id":"string"
+		//   ^start
+		s = &cfg->json[key_jt->start - JSON_FIRST_QUOTE - JSON_SEPARATING_COMMA];
+		slen = key_size + val_size + SLEN_COMMA_4QUOTES_COLON;	// remember (jt->end - jt->start) doesn't include first quote
+		if (*s == '{') s++;		// at the beginning, slen stays the same because need to remove trailing comma
+		//printf("cfg_set_string(CFG_REMOVE): %s %d %d %d <%.*s>\n", name, slen, key_size, val_size, slen, s);
+		strcpy(s, s + slen);
+	} else {
+		if (!jt) {
+			// create by appending to the end of the JSON string
+			slen = strlen(name) + strlen(val) + SLEN_COMMA_4QUOTES_COLON;
+			assert(cfg->json_buf_size);
+			_cfg_realloc_json(cfg, cfg->json_buf_size + slen, CFG_COPY);
+			s = cfg->json + strlen(cfg->json) - SPACE_FOR_CLOSE_BRACE;
+			bool head = (s[-1] == '{');
+			sprintf(s, "%s\"%s\":\"%s\"}", head? "":",", name, val);
+		} else {
+			lprintf("%s: don't support cfg_set_string() update yet: %s\n", cfg->filename, name);
+			panic("cfg_set_string");
+		}
 	}
-	return setting;
+	
+	cfg_parse_json(cfg);	// must re-parse
 }
+
+
+const char *_cfg_object(cfg_t *cfg, const char *name, bool *error, u4_t flags)
+{
+	const char *obj = NULL;
+	bool err = false;
+
+	jsmntok_t *jt = _cfg_lookup_json(cfg, name);
+	if (!jt || _cfg_type_json(cfg, JSMN_OBJECT, jt, &obj) == false) {
+		err = true;
+	}
+	if (error) *error = err;
+	if (err) {
+		if (!(flags & CFG_REQUIRED)) return NULL;
+		lprintf("%s: required parameter not found: %s\n", cfg->filename, name);
+		panic("cfg_object");
+	}
+
+	if (flags & CFG_PRINT) lprintf("CFG read %s: %s = \"%s\"\n", cfg->filename, name, obj);
+	return obj;
+}
+
+void _cfg_set_object(cfg_t *cfg, const char *name, const char *val)
+{
+	int slen;
+	char *s;
+	jsmntok_t *jt = _cfg_lookup_json(cfg, name);
+	
+	if (val == NULL) {
+		if (!jt) {
+			lprintf("%s: cfg_set_object(CFG_REMOVE) a parameter that doesn't exist: %s\n", cfg->filename, name);
+			panic("cfg_set_object");
+		}
+		
+		jsmntok_t *key_jt = jt-1;
+		assert(JSMN_IS_ID(key_jt));
+		int key_size = key_jt->end - key_jt->start;
+		
+		s = &cfg->json[jt->start];
+		assert(jt->type == JSMN_OBJECT && *s == '{');
+		int val_size = jt->end - jt->start;
+		
+		// ,"id":{...} or {"id":{...}
+		//   ^start
+		s = &cfg->json[key_jt->start - JSON_FIRST_QUOTE - JSON_SEPARATING_COMMA];
+		slen = key_size + val_size + SLEN_COMMA_2QUOTES_COLON;	// remember (jt->end - jt->start) doesn't include first quote
+		if (*s == '{') s++;		// at the beginning, slen stays the same because need to remove trailing comma
+		//printf("cfg_set_object(CFG_REMOVE): %s %d %d %d <%.*s>\n", name, slen, key_size, val_size, slen, s);
+		strcpy(s, s + slen);
+	} else {
+		if (!jt) {
+			// create by appending to the end of the JSON string
+			slen = strlen(name) + strlen(val) + SLEN_COMMA_2QUOTES_COLON;
+			assert(cfg->json_buf_size);
+			_cfg_realloc_json(cfg, cfg->json_buf_size + slen, CFG_COPY);
+			s = cfg->json + strlen(cfg->json) - SPACE_FOR_CLOSE_BRACE;
+			bool head = (s[-1] == '{');
+			sprintf(s, "%s\"%s\":%s}", head? "":",", name, val);
+		} else {
+			lprintf("%s: don't support cfg_set_object() update yet: %s\n", cfg->filename, name);
+			panic("cfg_set_object");
+		}
+	}
+	
+	cfg_parse_json(cfg);	// must re-parse
+}
+
 
 static const char *jsmntype_s[] = {
 	"undef", "obj", "array", "string", "prim"
@@ -387,7 +533,7 @@ void cfg_print_tok(cfg_t *cfg, jsmntok_t *jt, int seq, int hit, int lvl, int rem
 {
 	int n;
 	char *s = &cfg->json[jt->start];
-	printf("%4d: %d-%02d%s ", seq, lvl, rem, (hit == lvl)? "*":" ");
+	printf("%4d: %d-%02d%s %4d ", seq, lvl, rem, (hit == lvl)? "*":" ", jt->start);
 
 	switch (jt->type) {
 	case JSMN_OBJECT:
@@ -400,7 +546,7 @@ void cfg_print_tok(cfg_t *cfg, jsmntok_t *jt, int seq, int hit, int lvl, int rem
 		break;
 	case JSMN_STRING:
 		n = jt->end - jt->start;
-		if (jt->size == 1) {
+		if (JSMN_IS_ID(jt)) {
 			printf("    id #%02d %.*s:\n", jt->size, n, s);
 		} else {
 			printf("%6s #%02d \"%.*s\"\n", jsmntype_s[jt->type], jt->size, n, s);
@@ -424,14 +570,11 @@ void _cfg_walk(cfg_t *cfg, const char *id, cfg_walk_cb_t cb)
 	memset(remstk, 0, sizeof(remstk));
 	jsmntok_t *remjt[32];
 	
-	if (!cfg->use_json)
-		return;
-	
 	for (i=0; i < cfg->ntok; i++) {
 		char *s = &cfg->json[jt->start];
 		_lvl = lvl; _rem = remstk[lvl];
 
-		if (lvl && (jt->type != JSMN_STRING || (jt->type == JSMN_STRING && jt->size == 0))) {
+		if (lvl && (jt->type != JSMN_STRING || JSMN_IS_STRING(jt))) {
 			remstk[lvl]--;
 		}
 
@@ -447,7 +590,7 @@ void _cfg_walk(cfg_t *cfg, const char *id, cfg_walk_cb_t cb)
 		}
 
 		// check for optional id match
-		if (hit == -1 && jt->type == JSMN_STRING && jt->size == 1) {
+		if (hit == -1 && JSMN_IS_ID(jt)) {
 			n = jt->end - jt->start;
 			if (id && n == idlen && strncmp(s, id, n) == 0)
 				hit = lvl+1;
@@ -469,6 +612,7 @@ static void cfg_parse_json(cfg_t *cfg)
 		cfg->tok_size = 64;
 	
 	int slen = strlen(cfg->json);
+	assert(cfg->json_buf_size >= slen + SPACE_FOR_NULL);
 	jsmn_parser parser;
 	
 	int rc;
@@ -493,24 +637,32 @@ static void cfg_parse_json(cfg_t *cfg)
 			else
 			if (rc == JSMN_ERROR_PART)
 				lprintf("the string is not a full JSON packet, more bytes expected\n");
+			printf("%s\n", cfg->json);
 			panic("jsmn_parse");
 		}
-	} while(rc == JSMN_ERROR_NOMEM);
+	} while (rc == JSMN_ERROR_NOMEM);
 
 	//printf("using %d of %d tokens\n", rc, cfg->tok_size);
 	cfg->ntok = rc;
 }
 
-char *_cfg_realloc_json(cfg_t *cfg, int size)
+char *_cfg_realloc_json(cfg_t *cfg, int new_size, u4_t flags)
 {
-	assert(size > 0);
-	if (cfg->json_size >= size) {
+	assert(new_size > 0);
+	if (cfg->json_buf_size >= new_size) {
 		assert(cfg->json);
 	} else {
-		if (cfg->json)
-			kiwi_free("json buf", cfg->json);
-		cfg->json_size = size;
-		cfg->json = (char *) kiwi_malloc("json buf", cfg->json_size);
+		char *prev = cfg->json;
+		int prev_size = cfg->json_buf_size;
+		cfg->json_buf_size = new_size;
+		cfg->json = (char *) kiwi_malloc("json buf", cfg->json_buf_size);
+		if (flags & CFG_COPY) {
+			if (prev != NULL && prev_size != 0) {
+				strcpy(cfg->json, prev);
+			}
+		}
+		if (prev)
+			kiwi_free("json buf", prev);
 	}
 	return cfg->json;
 }
@@ -526,10 +678,10 @@ static int _cfg_load_json(cfg_t *cfg)
 	
 	struct stat st;
 	scall("stat", stat(cfg->filename, &st));
-	_cfg_realloc_json(cfg, st.st_size+1);
+	_cfg_realloc_json(cfg, st.st_size + SPACE_FOR_NULL, CFG_NONE);
 	
-	n = fread(cfg->json, 1, cfg->json_size, fp);
-	assert(n > 0 && n < cfg->json_size);
+	n = fread(cfg->json, 1, cfg->json_buf_size, fp);
+	assert(n > 0 && n < cfg->json_buf_size);
 	fclose(fp);
 
 	// turn into a string
@@ -538,10 +690,11 @@ static int _cfg_load_json(cfg_t *cfg)
 		cfg->json[n-1] = '\0';
 	
 	cfg_parse_json(cfg);
-	
-	if (0 && cfg == &cfg_cfg) {
-		printf("walking config list...\n");
-		cfg_walk(NULL, cfg_print_tok);
+
+	if (0 && cfg != &cfg_dx) {
+	//if (1) {
+		printf("walking %s config list after load (%d tokens)...\n", cfg->filename, cfg->ntok);
+		_cfg_walk(cfg, NULL, cfg_print_tok);
 	}
 
 	return 1;
@@ -551,30 +704,17 @@ static int _cfg_load_json(cfg_t *cfg)
 void _cfg_save_json(cfg_t *cfg, char *json)
 {
 	FILE *fp;
-	
-	// dx conversion: first time saving as json switch to using json thereafter
-	if (cfg == &cfg_dx && !cfg->use_json) {
-		cfg->filename = cfg->filename_json;
-		cfg->use_json = true;
-	}
-	
-	assert(cfg->use_json);
-	assert(cfg->filename == cfg->filename_json);
-	
+
+	//printf("_cfg_save_json fn=%s json=%s\n", cfg->filename, json);
 	scallz("_cfg_save_json fopen", (fp = fopen(cfg->filename, "w")));
 	fprintf(fp, "%s\n", json);
 	fclose(fp);
 	
 	// if new buffer is different update our copy
 	if (!cfg->json || (cfg->json && cfg->json != json)) {
-		_cfg_realloc_json(cfg, strlen(json)+1);
+		_cfg_realloc_json(cfg, strlen(json) + SPACE_FOR_NULL, CFG_NONE);
 		strcpy(cfg->json, json);
 	}
 
 	cfg_parse_json(cfg);
-
-	if (0 && cfg == &cfg_dx) {
-		printf("walking DX list...\n");
-		dxcfg_walk(NULL, cfg_print_tok);
-	}
 }

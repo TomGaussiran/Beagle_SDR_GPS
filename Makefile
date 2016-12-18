@@ -1,5 +1,5 @@
 VERSION_MAJ = 1
-VERSION_MIN = 27
+VERSION_MIN = 32
 
 DEBIAN_VER = 8.4
 
@@ -40,14 +40,6 @@ DEBIAN_VER = 8.4
 #		./configure --enable-single
 #		make
 #		(sudo) make install
-#	BeagleBone Black, Debian:
-#		the Makefile automatically installs the package using apt-get
-#
-#
-# installing libconfig:
-#
-#	Mac:
-#		nothing to install -- dummy routines in code so it will compile
 #	BeagleBone Black, Debian:
 #		the Makefile automatically installs the package using apt-get
 #
@@ -110,8 +102,8 @@ else
 	CFLAGS = -mfpu=neon
 #	CFLAGS += -O3
 	CFLAGS += -g -MD -DDEBUG -DHOST
-	LIBS = -lfftw3f -lconfig
-	LIBS_DEP = /usr/lib/arm-linux-gnueabihf/libfftw3f.a /usr/lib/arm-linux-gnueabihf/libconfig.a
+	LIBS = -lfftw3f
+	LIBS_DEP = /usr/lib/arm-linux-gnueabihf/libfftw3f.a
 	DIR_CFG = /root/kiwi.config
 	CFG_PREFIX =
 
@@ -141,10 +133,6 @@ ifeq ($(DEBIAN_DEVSYS),$(DEBIAN))
 /usr/lib/arm-linux-gnueabihf/libfftw3f.a:
 	apt-get update
 	apt-get -y install libfftw3-dev
-
-/usr/lib/arm-linux-gnueabihf/libconfig.a:
-	apt-get update
-	apt-get -y install libconfig-dev
 endif
 
 # PRU
@@ -319,6 +307,9 @@ DIR_CFG_SRC = unix_env/kiwi.config
 CFG_KIWI = kiwi.json
 EXISTS_KIWI = $(shell test -f $(DIR_CFG)/$(CFG_KIWI); echo $$?)
 
+CFG_ADMIN = admin.json
+EXISTS_ADMIN = $(shell test -f $(DIR_CFG)/$(CFG_ADMIN); echo $$?)
+
 CFG_CONFIG = config.js
 EXISTS_CONFIG = $(shell test -f $(DIR_CFG)/$(CFG_CONFIG); echo $$?)
 
@@ -359,6 +350,13 @@ ifeq ($(EXISTS_KIWI),1)
 	@echo installing $(DIR_CFG)/$(CFG_KIWI)
 	@mkdir -p $(DIR_CFG)
 	cp $(DIR_CFG_SRC)/dist.$(CFG_KIWI) $(DIR_CFG)/$(CFG_KIWI)
+
+# don't prevent admin.json transition process
+ifeq ($(EXISTS_ADMIN),1)
+	@echo installing $(DIR_CFG)/$(CFG_ADMIN)
+	@mkdir -p $(DIR_CFG)
+	cp $(DIR_CFG_SRC)/dist.$(CFG_ADMIN) $(DIR_CFG)/$(CFG_ADMIN)
+endif
 endif
 
 ifeq ($(EXISTS_DX),1)
@@ -440,6 +438,21 @@ git:
 update_check:
 	wget --no-check-certificate https://raw.githubusercontent.com/jks-prv/Beagle_SDR_GPS/master/Makefile -O Makefile.1
 	diff Makefile Makefile.1
+
+force_update:
+	touch main.cpp update.cpp rx/rx_server.cpp rx/rx_server_ajax.cpp rx/rx_util.cpp web/services.c web/web.c
+	make
+
+dump_eeprom:
+	@echo KiwiSDR cape EEPROM:
+ifeq ($(DEBIAN_7),1)
+	hexdump -C /sys/bus/i2c/devices/1-0054/eeprom
+else
+	hexdump -C /sys/bus/i2c/devices/2-0054/eeprom
+endif
+	@echo
+	@echo BeagleBone EEPROM:
+	hexdump -C /sys/bus/i2c/devices/0-0050/eeprom
 
 DIST = kiwi
 # Use the git upstream of the current directory to determine the git repo & name

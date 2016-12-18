@@ -37,6 +37,11 @@ This file is part of OpenWebRX.
 		<link rel="stylesheet" type="text/css" href="openwebrx.css" />
 		<link rel="stylesheet" type="text/css" href="kiwi/kiwi.css" />
 
+		<script type="text/javascript">
+			// must be before inclusion of any .js files
+			var kiwi_check_js_version = [];
+		</script>
+		
 		<script src="config/config.js"></script>
 		<script src="openwebrx.js"></script>
 		<script src="ima_adpcm.js"></script>
@@ -46,7 +51,7 @@ This file is part of OpenWebRX.
 		<script src="kiwi/w3_util.js"></script>
 		<script src="extensions/ext.js"></script>
 
-		<!-- load javascript of the extensions -->
+		<!-- load javascript and CSS of the extensions -->
 		%[EXT_LIST_JS]
 	</head>
 

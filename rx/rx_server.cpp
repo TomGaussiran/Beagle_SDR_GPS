@@ -21,6 +21,7 @@ Boston, MA  02110-1301, USA.
 #include "config.h"
 #include "kiwi.h"
 #include "misc.h"
+#include "str.h"
 #include "printf.h"
 #include "timer.h"
 #include "web.h"
@@ -47,18 +48,17 @@ conn_t conns[N_CONNS];
 rx_chan_t rx_chan[RX_CHANS];
 
 stream_t streams[] = {
-	{ STREAM_SOUND,		"AUD",		&w2a_sound,		SND_PRIORITY },
-	{ STREAM_WATERFALL,	"FFT",		&w2a_waterfall,	WF_PRIORITY },
-	{ STREAM_ADMIN,		"ADM",		&w2a_admin,		ADMIN_PRIORITY },
-	{ STREAM_MFG,		"MFG",		&w2a_mfg,		ADMIN_PRIORITY },
-	{ STREAM_EXT,		"EXT",		&extint_w2a,	EXT_PRIORITY },
-	{ STREAM_USERS,		"USR" },
-	{ STREAM_DX,		"MKR" },
-	{ STREAM_DX_UPD,	"UPD" },
-	{ STREAM_PWD,		"PWD" },
-	{ STREAM_DISCOVERY,	"DIS" },
-	{ STREAM_PHOTO,		"PIX" },
-	{ STREAM_SDR_HU,	"status" },
+	{ STREAM_SOUND,		"AUD",		&c2s_sound,		&c2s_sound_setup,		SND_PRIORITY },
+	{ STREAM_WATERFALL,	"FFT",		&c2s_waterfall,	&c2s_waterfall_setup,	WF_PRIORITY },
+	{ STREAM_ADMIN,		"admin",	&c2s_admin,		&c2s_admin_setup,		ADMIN_PRIORITY },
+	{ STREAM_MFG,		"mfg",		&c2s_mfg,		&c2s_mfg_setup,			ADMIN_PRIORITY },
+	{ STREAM_EXT,		"EXT",		&extint_c2s,	&extint_setup_c2s,		EXT_PRIORITY },
+
+	// AJAX requests
+	{ AJAX_DISCOVERY,	"DIS" },
+	{ AJAX_PHOTO,		"PIX" },
+	{ AJAX_VERSION,		"VER" },
+	{ AJAX_SDR_HU,		"status" },
 	{ 0 }
 };
 
@@ -85,8 +85,8 @@ void dump()
 	conn_t *cd;
 	for (cd=conns, i=0; cd < &conns[N_CONNS]; cd++, i++) {
 		if (cd->valid)
-			lprintf("CONN%02d-%p %s rx=%d KA=%06d KC=%06d mc=%9p magic=0x%x ip=%s:%d other=%s%d %s%s\n",
-				i, cd, streams[cd->type].uri, (cd->type == STREAM_EXT)? cd->ext_rx_chan : cd->rx_channel,
+			lprintf("CONN%02d-%p %s rx=%d auth=%d KA=%06d KC=%06d mc=%9p magic=0x%x ip=%s:%d other=%s%d %s%s\n",
+				i, cd, streams[cd->type].uri, (cd->type == STREAM_EXT)? cd->ext_rx_chan : cd->rx_channel, cd->auth,
 				cd->keep_alive, cd->keepalive_count, cd->mc, cd->magic,
 				cd->remote_ip, cd->remote_port, cd->other? "CONN":"", cd->other? cd->other-conns:0,
 				(cd->type == STREAM_EXT)? cd->ext->name : "", cd->stop_data? " STOP_DATA":"");
@@ -101,9 +101,9 @@ static void dump_conn()
 	int i;
 	conn_t *cd;
 	for (cd=conns, i=0; cd < &conns[N_CONNS]; cd++, i++) {
-		lprintf("dump_conn: CONN-%d %p valid=%d type=%d KA=%d KC=%d mc=%p rx=%d %s magic=0x%x ip=%s:%d other=%s%d %s\n",
-			i, cd, cd->valid, cd->type, cd->keep_alive, cd->keepalive_count, cd->mc, cd->rx_channel, streams[cd->type].uri, cd->magic,
-			cd->remote_ip, cd->remote_port, cd->other? "CONN-":"", cd->other? cd->other-conns:0, cd->stop_data? "STOP":"");
+		lprintf("dump_conn: CONN-%d %p valid=%d type=%d auth=%d KA=%d KC=%d mc=%p rx=%d %s magic=0x%x ip=%s:%d other=%s%d %s\n",
+			i, cd, cd->valid, cd->type, cd->auth, cd->keep_alive, cd->keepalive_count, cd->mc, cd->rx_channel, streams[cd->type].uri,
+			cd->magic, cd->remote_ip, cd->remote_port, cd->other? "CONN-":"", cd->other? cd->other-conns:0, cd->stop_data? "STOP":"");
 	}
 	rx_chan_t *rc;
 	for (rc=rx_chan, i=0; rc < &rx_chan[RX_CHANS]; rc++, i++) {
@@ -112,7 +112,8 @@ static void dump_conn()
 	}
 }
 
-static void cfg_handler(int arg)
+// invoked by "make reload" command which will send SIGUSR1 to the kiwi server process
+static void cfg_reload_handler(int arg)
 {
 	lprintf("SIGUSR1: reloading configuration, dx list..\n");
 	cfg_reload(NOT_CALLED_FROM_MAIN);
@@ -120,40 +121,22 @@ static void cfg_handler(int arg)
 	struct sigaction act;
 	act.sa_flags = 0;
 	sigemptyset(&act.sa_mask);
-	act.sa_handler = cfg_handler;
+	act.sa_handler = cfg_reload_handler;
 	scall("SIGUSR1", sigaction(SIGUSR1, &act, NULL));
 }
 
-static void debug_handler(int arg)
+// can optionally configure SIGUSR1 to call this debug handler
+static void debug_dump_handler(int arg)
 {
+	lprintf("\n");
 	lprintf("SIGUSR1: debugging..\n");
 	dump();
 
 	struct sigaction act;
 	act.sa_flags = 0;
 	sigemptyset(&act.sa_mask);
-	act.sa_handler = debug_handler;
+	act.sa_handler = debug_dump_handler;
 	scall("SIGUSR1", sigaction(SIGUSR1, &act, NULL));
-}
-
-int inactivity_timeout_mins;
-double ui_srate;
-
-double DC_offset_I, DC_offset_Q;
-
-void update_IQ_offsets()
-{
-	double offset;
-	offset = cfg_float("DC_offset_I", NULL, CFG_OPTIONAL);
-	if (offset != 0 ) {
-		//printf("new DC_offset_I %e\n", offset);
-		DC_offset_I = offset;
-	}
-	offset = cfg_float("DC_offset_Q", NULL, CFG_OPTIONAL);
-	if (offset != 0 ) {
-		//printf("new DC_offset_Q %e\n", offset);
-		DC_offset_Q = offset;
-	}
 }
 
 void rx_server_init()
@@ -163,36 +146,29 @@ void rx_server_init()
 	conn_t *c = conns;
 	for (i=0; i<N_CONNS; i++) {
 		conn_init(c);
-		ndesc_register(&c->w2a);
-		ndesc_register(&c->a2w);
+		ndesc_register(&c->c2s);
+		ndesc_register(&c->s2c);
 		c++;
 	}
 	
 	// SIGUSR2 is now used exclusively by TaskCollect()
 	struct sigaction act;
 	memset(&act, 0, sizeof(act));
-	
-	#if 0
 	sigemptyset(&act.sa_mask);
-	act.sa_handler = cfg_handler;
+	
+	#if 1
+	act.sa_handler = debug_dump_handler;
+	scall("SIGUSR1", sigaction(SIGUSR1, &act, NULL));
+	#else
+	act.sa_handler = cfg_reload_handler;
 	scall("SIGUSR1", sigaction(SIGUSR1, &act, NULL));
 	#endif
 
-	#if 1
-	act.sa_handler = debug_handler;
-	scall("SIGUSR1", sigaction(SIGUSR1, &act, NULL));
-	#endif
-	
-	inactivity_timeout_mins = cfg_int("inactivity_timeout_mins", NULL, CFG_REQUIRED);
-	
-	i = cfg_int("max_freq", NULL, CFG_OPTIONAL);
-	ui_srate = i? 32*MHz : 30*MHz;
-	
-	update_IQ_offsets();
+	update_vars_from_config();
 	
 	if (!down) {
-		w2a_sound_init();
-		w2a_waterfall_init();
+		c2s_sound_init();
+		c2s_waterfall_init();
 	}
 }
 
@@ -262,18 +238,31 @@ int rx_server_users()
 	return (users? users : any);
 }
 
-void stream_tramp(void *param)
+void rx_server_send_config(conn_t *conn)
 {
-	conn_t *conn = (conn_t *) param;
+	// SECURITY: only send configuration after auth has validated
+	assert(conn->auth == true);
+
 	char *json = cfg_get_json(NULL);
 	if (json != NULL) {
 		send_msg(conn, SM_NO_DEBUG, "MSG version_maj=%d version_min=%d", VERSION_MAJ, VERSION_MIN);
-		send_encoded_msg_mc(conn->mc, "MSG", "load_cfg", "%s", json);
+		send_msg_encoded_mc(conn->mc, "MSG", "load_cfg", "%s", json);
+
+		// send admin config ONLY if this is an authenticated connection from the admin page
+		if (conn->type == STREAM_ADMIN) {
+			char *adm_json = admcfg_get_json(NULL);
+			if (adm_json != NULL) {
+				send_msg_encoded_mc(conn->mc, "MSG", "load_adm", "%s", adm_json);
+			}
+		}
 	}
-	(conn->task_func)(param);
 }
 
-struct mg_connection *msgs_mc;
+void stream_tramp(void *param)
+{
+	conn_t *conn = (conn_t *) param;
+	(conn->task_func)(param);
+}
 
 // if this connection is new, spawn new receiver channel with sound/waterfall tasks
 conn_t *rx_server_websocket(struct mg_connection *mc, websocket_mode_e mode)
@@ -299,6 +288,7 @@ conn_t *rx_server_websocket(struct mg_connection *mc, websocket_mode_e mode)
 		}
 		
 		if (mode == WS_MODE_CLOSE) {
+			//clprintf(c, "rx_server_websocket: WS_MODE_CLOSE\n");
 			c->mc = NULL;
 			return NULL;
 		}
@@ -390,8 +380,8 @@ conn_t *rx_server_websocket(struct mg_connection *mc, websocket_mode_e mode)
 			//printf("CONN-%d !VALID\n", cn);
 			continue;
 		}
-		//printf("CONN-%d IS %p type=%d tstamp=%lld ip=%s:%d rx=%d other%s%ld mc=%p\n", cn, c, c->type, c->tstamp, c->remote_ip,
-		//	c->remote_port, c->rx_channel, c->other? "=CONN-":"=", c->other? c->other-conns:0, c->mc);
+		//printf("CONN-%d IS %p type=%d tstamp=%lld ip=%s:%d rx=%d auth=%d other%s%ld mc=%p\n", cn, c, c->type, c->tstamp, c->remote_ip,
+		//	c->remote_port, c->rx_channel, c->auth, c->other? "=CONN-":"=", c->other? c->other-conns:0, c->mc);
 		if (c->tstamp == tstamp && (strcmp(mc->remote_ip, c->remote_ip) == 0)) {
 			if (snd_or_wf && c->type == st->type) {
 				//printf("CONN-%d DUPLICATE!\n", cn);
@@ -426,7 +416,7 @@ conn_t *rx_server_websocket(struct mg_connection *mc, websocket_mode_e mode)
 			cn = cnfree;
 		} else {
 			//printf("(too many network connections open for %s)\n", st->uri);
-			if (st->type != STREAM_SOUND) send_msg_mc(mc, SM_NO_DEBUG, "MSG too_busy=%d", RX_CHANS);
+			if (st->type != STREAM_WATERFALL) send_msg_mc(mc, SM_NO_DEBUG, "MSG too_busy=%d", RX_CHANS);
 			return NULL;
 		}
 	}
@@ -437,15 +427,12 @@ conn_t *rx_server_websocket(struct mg_connection *mc, websocket_mode_e mode)
 	c->other = cother;
 
 	if (snd_or_wf) {
-		int rx = -1;
+		int rx;
 		if (!cother) {
-			for (i=0; i < RX_CHANS; i++) {
-				//printf("RX_CHAN-%d busy %d\n", i, rx_chan[i].busy);
-				if (!rx_chan[i].busy && rx == -1) rx = i;
-			}
+			int rx_free = rx_chan_free(&rx);
 			if (rx == -1) {
 				//printf("(too many rx channels open for %s)\n", st->uri);
-				if (st->type == STREAM_WATERFALL) send_msg_mc(mc, SM_NO_DEBUG, "MSG too_busy=%d", RX_CHANS);
+				if (st->type == STREAM_SOUND) send_msg_mc(mc, SM_NO_DEBUG, "MSG too_busy=%d", RX_CHANS);
 				mc->connection_param = NULL;
 				conn_init(c);
 				return NULL;
@@ -453,6 +440,7 @@ conn_t *rx_server_websocket(struct mg_connection *mc, websocket_mode_e mode)
 			//printf("CONN-%d no other, new alloc rx%d\n", cn, rx);
 			rx_chan[rx].busy = true;
 		} else {
+			rx = -1;
 			cother->other = c;
 		}
 		c->rx_channel = cother? cother->rx_channel : rx;
@@ -464,18 +452,13 @@ conn_t *rx_server_websocket(struct mg_connection *mc, websocket_mode_e mode)
 	c->mc = mc;
 	c->remote_port = mc->remote_port;
 	c->tstamp = tstamp;
-	ndesc_init(&c->a2w, mc);
-	ndesc_init(&c->w2a, mc);
+	ndesc_init(&c->s2c, mc);
+	ndesc_init(&c->c2s, mc);
 	c->ui = find_ui(mc->local_port);
 	assert(c->ui);
 	c->arrival = timer_sec();
 	//printf("NEW channel %d\n", c->rx_channel);
 	
-	// remember channel for recording error messages remotely
-	if (c->type == STREAM_ADMIN || c->type == STREAM_MFG) {
-		msgs_mc = mc;
-	}
-
 	if (st->f != NULL) {
 		c->task_func = st->f;
 		int id = CreateTaskSP(stream_tramp, st->uri, c, st->priority);
@@ -485,49 +468,4 @@ conn_t *rx_server_websocket(struct mg_connection *mc, websocket_mode_e mode)
 	//printf("CONN-%d <=== USE THIS ONE\n", cn);
 	c->valid = true;
 	return c;
-}
-
-bool rx_common_cmd(const char *name, conn_t *conn, char *cmd)
-{
-	int n;
-	
-	if (strcmp(cmd, "SET keepalive") == 0) {
-		conn->keepalive_count++;
-		return true;
-	}
-
-	n = strncmp(cmd, "SET save=", 9);
-	if (n == 0) {
-		char *json = cfg_realloc_json(strlen(cmd));		// a little bigger than necessary
-		n = sscanf(cmd, "SET save=%s", json);
-		assert(n == 1);
-		//printf("SET save=...\n");
-		int slen = strlen(json);
-		mg_url_decode(json, slen, json, slen+1, 0);		// dst=src is okay because length dst always <= src
-		cfg_save_json(json);
-		
-		// variables for C code that should be updated when configuration saved
-		update_IQ_offsets();
-		S_meter_cal = cfg_int("S_meter_cal", NULL, CFG_REQUIRED);
-		
-		return true;
-	}
-
-	int wf_comp;
-	n = sscanf(cmd, "SET wf_comp=%d", &wf_comp);
-	if (n == 1) {
-		w2a_waterfall_compression(conn->rx_channel, wf_comp? true:false);
-		printf("### SET wf_comp=%d\n", wf_comp);
-		return true;
-	}
-
-	if (strncmp(cmd, "SERVER DE CLIENT", 16) == 0) return true;
-	
-	// we see these sometimes; not part of our protocol
-	if (strcmp(cmd, "PING") == 0) return true;
-
-	// we see these at the close of a connection; not part of our protocol
-	if (strcmp(cmd, "?") == 0) return true;
-
-	return false;
 }

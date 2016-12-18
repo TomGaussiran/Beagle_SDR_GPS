@@ -32,12 +32,12 @@ function integrate_clear()
 	c.fillStyle = '#575757';
 	c.fillRect(0, 0, 256, 280);
 	
-	var left = html_idname('integrate-controls-left');
-	var right = html_idname('integrate-controls-right');
+	var left = w3_el_id('integrate-controls-left');
+	var right = w3_el_id('integrate-controls-right');
 
 	switch (integrate_preset) {
 	
-	case 0:
+	case 0:		// Alpha has sub-display on left
 		ext_set_controls_width();		// default width
 		left.style.width = '49.9%';
 		right.style.width = '49.9%';
@@ -110,7 +110,7 @@ function integrate_recv(data)
 {
 	var firstChars = getFirstChars(data, 3);
 	
-	// process data sent from server/C by ext_send_data_msg()
+	// process data sent from server/C by ext_send_msg_data()
 	if (firstChars == "DAT") {
 		var ba = new Uint8Array(data, 4);
 		var cmd = ba[0] >> 1;
@@ -152,7 +152,7 @@ function integrate_recv(data)
 		return;
 	}
 	
-	// process command sent from server/C by ext_send_msg() or ext_send_encoded_msg()
+	// process command sent from server/C by ext_send_msg() or ext_send_msg_encoded()
 	var stringData = arrayBufferToString(data);
 	var params = stringData.substring(4).split(" ");
 
@@ -239,7 +239,7 @@ function integrate_controls_setup()
 				w3_divs('w3-container', 'w3-tspace-8',
 					w3_divs('', 'w3-medium w3-text-aqua', '<b>Audio integration</b>'),
 					w3_input('Integrate time (secs)', 'integrate.itime', integrate.itime, 'integrate_itime_cb', '', 'w3-width-64'),
-					w3_select('Presets', 'select', 'integrate.pre', integrate.pre, pre_s, 'integrate_pre_select_cb'),
+					w3_select('Presets', 'select', 'integrate.pre', -1, pre_s, 'integrate_pre_select_cb'),
 					w3_slider('WF max', 'integrate.maxdb', integrate.maxdb, -100, 20, 1, 'integrate_maxdb_cb'),
 					w3_slider('WF min', 'integrate.mindb', integrate.mindb, -190, -30, 1, 'integrate_mindb_cb'),
 					w3_btn('Clear', 'integrate_clear_cb')
@@ -249,12 +249,12 @@ function integrate_controls_setup()
 
 	ext_panel_show(controls_html, data_html, null);
 
-	integrate_data_canvas = html_id('id-integrate-data-canvas');
+	integrate_data_canvas = w3_el_id('id-integrate-data-canvas');
 	integrate_data_canvas.ctx = integrate_data_canvas.getContext("2d");
 	integrate_data_canvas.im = integrate_data_canvas.ctx.createImageData(integ_w, 1);
 	integrate_data_canvas.addEventListener("mousedown", integrate_mousedown, false);
 
-	integrate_info_canvas = html_id('id-integrate-info-canvas');
+	integrate_info_canvas = w3_el_id('id-integrate-info-canvas');
 	integrate_info_canvas.ctx = integrate_info_canvas.getContext("2d");
 
 	integrate_resize();
@@ -272,7 +272,7 @@ function integrate_controls_setup()
 
 function integrate_resize()
 {
-	var el = html_idname('integrate-data');
+	var el = w3_el_id('integrate-data');
 	var left = (window.innerWidth - integ_w) / 2;
 	el.style.left = px(left);
 }
@@ -380,8 +380,9 @@ var integrate_preset = -1;
 
 function integrate_pre_select_cb(path, idx)
 {
-	if (idx) integ_draw = false;
-	integrate_preset = idx-1;
+	idx = +idx;
+	integ_draw = false;
+	integrate_preset = idx;
 	
 	switch (integrate_preset) {
 	
@@ -460,8 +461,8 @@ function integrate_config_html()
 			/*
 			w3_third('', 'w3-container',
 				w3_divs('', 'w3-margin-bottom',
-					admin_input('int1', 'integrate.int1', 'admin_num_cb'),
-					admin_input('int2', 'integrate.int2', 'admin_num_cb')
+					w3_input_get_param('int1', 'integrate.int1', 'w3_num_cb'),
+					w3_input_get_param('int2', 'integrate.int2', 'w3_num_cb')
 				), '', ''
 			)
 			*/

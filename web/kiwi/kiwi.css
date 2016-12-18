@@ -21,6 +21,11 @@
 	-moz-border-radius: 15px;
 }
 
+#id-log-not-shown
+{
+	background-color: yellow;
+}
+
 
 /* appearing in class="..." even though "id-..." */
 
@@ -45,7 +50,18 @@
 
 .cl-kiwi-button
 {
+	margin: 0 0 3px 0;
+	border: 0;		/* makes the stupid beveled edge go away */
+	border-radius: 3px;
+	padding: 0 11px;
+	color: black;
+	background-color: white;
+}
 
+.cl-kiwi-button:active
+{
+	color: black;
+	background-color: lime;
 }
 
 .cl-admin-check
@@ -83,8 +99,6 @@
 	max-height: 250px;
 	padding: 10px;
 	margin: 5px;
-	border-radius: 10px;
-	-moz-border-radius: 10px;
 }
 
 .class-mfg-button

@@ -55,7 +55,7 @@ function iq_display_update()
 		}
 	}
 	
-	html_idname('iq_display-cma').innerHTML =
+	w3_el_id('iq_display-cma').innerHTML =
 		'CMA I: '+ iq_display_cmaI.toExponential(3) +'&nbsp; &nbsp; CMA Q: '+ iq_display_cmaI.toExponential(3);
 }
 
@@ -65,7 +65,7 @@ function iq_display_recv(data)
 {
 	var firstChars = getFirstChars(data, 3);
 	
-	// process data sent from server/C by ext_send_data_msg()
+	// process data sent from server/C by ext_send_msg_data()
 	if (firstChars == "DAT") {
 		var ba = new Uint8Array(data, 4);
 		var cmd = ba[0] >> 1;
@@ -113,7 +113,7 @@ function iq_display_recv(data)
 		return;
 	}
 	
-	// process command sent from server/C by ext_send_msg() or ext_send_encoded_msg()
+	// process command sent from server/C by ext_send_msg() or ext_send_msg_encoded()
 	var stringData = arrayBufferToString(data);
 	var params = stringData.substring(4).split(" ");
 
@@ -152,7 +152,7 @@ var iq_display_gain_init = 15;
 var iq_display_points_init = 10;
 
 var iq_display = {
-	'gain':iq_display_gain_init, 'draw':0+1, 'points':iq_display_points_init, 'offset':0
+	'gain':iq_display_gain_init, 'draw':0, 'points':iq_display_points_init, 'offset':0
 };
 
 var iq_display_canvas;
@@ -174,12 +174,12 @@ function iq_display_controls_setup()
 				w3_divs('w3-container', 'w3-tspace-8',
 					w3_divs('', 'w3-medium w3-text-aqua', '<b>IQ display</b>'),
 					w3_slider('Gain', 'iq_display.gain', iq_display.gain, 0, 100, 1, 'iq_display_gain_cb'),
-					w3_select('Draw', 'select', 'iq_display.draw', iq_display.draw, draw_s, 'iq_display_draw_select_cb'),
+					w3_select('Draw', '', 'iq_display.draw', iq_display.draw, draw_s, 'iq_display_draw_select_cb'),
 					w3_input('Clock offset', 'iq_display.offset', iq_display.offset, 'iq_display_offset_cb', '', 'w3-width-128'),
 					w3_slider('Points', 'iq_display.points', iq_display.points, 4, 14, 1, 'iq_display_points_cb'),
 					w3_inline('', '',
 						w3_btn('Clear', 'iq_display_clear_cb'),
-						w3_btn('IQ bal', 'iq_display_IQ_balance', 'w3-override-yellow')
+						w3_btn('IQ bal', 'iq_display_IQ_balance_cb', 'w3-override-yellow')
 					)
 				)
 			),
@@ -188,7 +188,7 @@ function iq_display_controls_setup()
 
 	ext_panel_show(controls_html, null, null);
 
-	iq_display_canvas = html_id('id-iq_display-canvas');
+	iq_display_canvas = w3_el_id('id-iq_display-canvas');
 	iq_display_canvas.ctx = iq_display_canvas.getContext("2d");
 	iq_display_imageData = iq_display_canvas.ctx.createImageData(256, 1);
 
@@ -221,7 +221,7 @@ var iq_display_update_interval;
 
 function iq_display_draw_select_cb(path, idx)
 {
-	iq_display_draw = idx-1;
+	iq_display_draw = +idx;
 	ext_send('SET draw='+ iq_display_draw);
 	kiwi_clearInterval(iq_display_update_interval);
 	iq_display_update_interval = setInterval('iq_display_update()', 250);
@@ -242,24 +242,21 @@ function iq_display_clear_cb(path, val)
 
 function iq_display_IQ_bal_adjust()
 {
-	console.log('iq_display_IQ_bal_adjust: ADJUSTING');
-	ext_set_cfg_param('DC_offset_I', ext_get_cfg_param('DC_offset_I') + -iq_display_cmaI);
-	ext_set_save_cfg_param('DC_offset_Q', ext_get_cfg_param('DC_offset_Q') + -iq_display_cmaQ);
+	console.log('iq_display_IQ_bal_adjust: ADJUSTING I='+ (-iq_display_cmaI) +' Q='+ (-iq_display_cmaQ));
+	ext_send('SET DC_offset I='+ (-iq_display_cmaI) +' Q='+ (-iq_display_cmaQ));
 }
 
-function iq_display_IQ_balance(path, val)
+function iq_display_IQ_balance_cb(path, val)
 {
 	var func = function(badp) { if (!badp) iq_display_IQ_bal_adjust(); };
-	if (ext_hasCredential('admin', func)) {
-		iq_display_IQ_bal_adjust();
-	}
-
+	ext_hasCredential('admin', func);
 	setTimeout('w3_radio_unhighlight('+ q(path) +')', w3_highlight_time);
 }
 
 function iq_display_blur()
 {
 	//console.log('### iq_display_blur');
+	ext_send('SET run=0');
 	kiwi_clearInterval(iq_display_update_interval);
 	iq_display_visible(0);		// hook to be called when controls panel is closed
 }
@@ -275,8 +272,8 @@ function iq_display_config_html()
 			/*
 			w3_third('', 'w3-container',
 				w3_divs('', 'w3-margin-bottom',
-					admin_input('int1', 'iq_display.int1', 'admin_num_cb'),
-					admin_input('int2', 'iq_display.int2', 'admin_num_cb')
+					w3_input_get_param('int1', 'iq_display.int1', 'w3_num_cb'),
+					w3_input_get_param('int2', 'iq_display.int2', 'w3_num_cb')
 				), '', ''
 			)
 			*/
