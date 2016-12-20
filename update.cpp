@@ -102,7 +102,7 @@ static void update_task(void *param)
    fclose(fp);
    
    bool ver_changed = (n1 == 1 && n2 == 1 && (pending_maj > VERSION_MAJ  || (pending_maj == VERSION_MAJ && pending_min > VERSION_MIN)));
-   bool update_install = (cfg_bool("update_install", NULL, CFG_REQUIRED) == true);
+   bool update_install = (admcfg_bool("update_install", NULL, CFG_REQUIRED) == true);
    
    if (check_only && !force_build) {
       if (ver_changed)
