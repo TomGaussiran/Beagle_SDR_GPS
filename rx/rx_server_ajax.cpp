@@ -113,7 +113,6 @@ char *rx_server_ajax(struct mg_connection *mc)
 		mg_parse_multipart(mc->content, mc->content_len,
 			vname, sizeof(vname), fname, sizeof(fname), &data, &data_len);
 		
-		#define PHOTO_UPLOAD_MAX_SIZE (2*M)
 		if (data_len < PHOTO_UPLOAD_MAX_SIZE) {
 			FILE *fp;
 			scallz("fopen photo", (fp = fopen(DIR_CFG "/photo.upload.tmp", "w")));
@@ -218,13 +217,21 @@ char *rx_server_ajax(struct mg_connection *mc)
 	// SECURITY: FIXME: security through obscurity is weak
 	case AJAX_DUMP: {
 		printf("\n");
-		printf("DUMP REQUESTED from %s\n", mc->remote_ip);
+		lprintf("DUMP REQUESTED from %s\n", mc->remote_ip);
 		if (strcmp(mc->query_string, "b3f5ca67159c3bfb6dc150bd1a2064f50b8367ee") != 0)
 			return NULL;
 		dump();
-		asprintf(&sb, "--- DUMP ---\n");
+		asprintf(&sb, "--- LOG DUMP ---\n");
 		log_save_t *ls = log_save_p;
-		for (i = 0; i < ls->idx; i++) {
+		int first = MIN(ls->idx, N_LOG_SAVE/2);
+		for (i = 0; i < first; i++) {
+			sb = kiwi_strcat_const(sb, (const char *) ls->arr[i]);
+		}
+		if (ls->not_shown) {
+			asprintf(&sb2, "\n--- %d lines not shown ---\n\n", ls->not_shown);
+			sb = kiwi_strcat(sb, sb2);
+		}
+		for (; i < ls->idx; i++) {
 			sb = kiwi_strcat_const(sb, (const char *) ls->arr[i]);
 		}
 		break;
